@@ -1,0 +1,17 @@
+{
+  "name": "ankageotask3",
+  "version": "1.0.0",
+  "main": "index.js",
+"scripts": {
+    "start:backend": "docker-compose up --build",
+    "start:frontend": "npm --prefix frontend start",
+    "dev": "concurrently \"npm run start:backend\" \"npm run start:frontend\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
