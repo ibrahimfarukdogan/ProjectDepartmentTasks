@@ -1,6 +1,6 @@
 import { DataTypes, Model, Optional } from 'sequelize';
 import sequelize from '../db/db.js';
-import { ActivityLogs, TasksHistory } from './index.js';
+import { ActivityLogs, Departments, TasksHistory, Users } from './index.js';
 import { CreateWithUserOptions, SaveWithUserOptions } from '../types/hookparameter.js';
 
 export interface TaskAttributes {
@@ -23,6 +23,10 @@ export interface TaskAttributes {
   requester_mail?: string;
   requester_phone?: number;
   requester_rank: 'milletvekili' | 'kaymakamlik' | 'muhtarlik' | 'diger';
+
+assignedUser?: Users;
+updater?: Users;
+assignedDepartment?: Departments;
 }
 
 interface TaskCreationAttributes extends Optional<TaskAttributes, 'id' | 'assigned_user_id' | 'description' | 'start_date' | 'finish_date' | 'created_at' | 'updated_at' | 'requester_mail' | 'requester_phone'> { }
@@ -47,6 +51,10 @@ class Tasks extends Model<TaskAttributes, TaskCreationAttributes> implements Tas
   public requester_mail?: string;
   public requester_phone?: number;
   public requester_rank!: TaskAttributes['requester_rank'];
+
+  public assignedUser?: Users;
+public updater?: Users;
+public assignedDepartment?: Departments;
 }
 
 Tasks.init({

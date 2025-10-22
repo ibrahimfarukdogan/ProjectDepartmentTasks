@@ -1,51 +1,41 @@
 import { Request, Response, NextFunction } from 'express';
 import { Users, Roles, Permissions } from '../models/index.js'; // Adjust as needed
+import { getUserPermissions } from '../utils/utils.js';
 
 export default function requirePermission(category: string, minLevel: number) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!req.user || !req.user.id) {
+      const userId = req.user?.id;
+
+      if (!userId) {
         res.status(401).json({ error: 'Unauthorized: Invalid token or user ID missing' });
         return;
       }
 
-      const userId = req.user.id;
-
-      const user = await Users.findByPk(userId, {
-        include: [{
-          model: Roles,
-          as: 'role',
-          include: [{
-            model: Permissions,
-            as: 'permissions',
-            through: { attributes: [] },
-          }],
-        }],
-      });
-
-      if (!user || !user.role || !user.role.permissions) {
-        res.status(403).json({ error: `Forbidden: Role or permissions not found for user` });
+      const user = await Users.findByPk(userId);
+      if (!user) {
+        res.status(401).json({ error: 'Unauthorized: User not found' });
         return;
       }
 
-      const permission = user.role.permissions.find(p => p.category === category);
-      if (!permission || typeof permission.level !== 'number') {
-        res.status(403).json({ error: 'Forbidden: Permission not found or invalid' });
-        return;
-      }
+      const userPermissions = await getUserPermissions(user);
+
+      const permission = userPermissions.find(p => p.category === category);
       const userLevel = permission?.level ?? 0;
 
+      req.permissionLevel = userLevel; // ✅ attach actual user level, not just required level
+
       if (userLevel >= minLevel) {
-        req.permissionLevel = userLevel; // Optional: set for later use
-        next();
+        next(); // ✅ permission granted
         return;
       }
 
       res.status(403).json({
-        error: `Forbidden: Requires '${category}' level ${minLevel}, user has ${userLevel}`,
+        error: `Forbidden: Requires '${category}' level ${minLevel}, but you have level ${userLevel}`,
       });
+
     } catch (err) {
-      console.error('Permission middleware error:', err instanceof Error ? err.stack : err);
+      console.error('Permission middleware error:', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   };

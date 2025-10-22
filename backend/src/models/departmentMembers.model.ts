@@ -51,7 +51,6 @@ DepartmentMembers.init({
           member_id: instance.member_id,
         },
       });
-      console.log('DepartmentMembers.afterCreate triggered:', instance.member_id);
     },
   },
 });

@@ -10,7 +10,7 @@ import { PermissionAttributes } from '../models/permissions.model.js';
 import { Permissions } from '../models/index.js';
 import { RolePermissionAttributes } from '../models/rolePermissions.model.js';
 import { TaskStats } from '../types/stats.js';
-import { Sequelize } from 'sequelize';
+import { Op, Sequelize } from 'sequelize';
 
 const router = express.Router();
 
@@ -60,7 +60,7 @@ router.post('/:id/users',
       }
 
       // ✅ Set default role_id to 1 if not provided
-      if (!data.role_id) {
+      if (!data.role_id || data.role_id == null) {
         let defaultRole = await Roles.findByPk(1);
 
         if (!defaultRole) {
@@ -85,6 +85,13 @@ router.post('/:id/users',
         }
         if (defaultRole)
           data.role_id = defaultRole.id;
+      }
+      else {
+        const Role = await Roles.findByPk(data.role_id);
+        if (!Role) {
+          res.status(404).json({ message: 'Role not found' });
+          return;
+        }
       }
 
       // Create user
@@ -138,6 +145,11 @@ router.put('/:deptId/users/:userId',
       // 🔍 Step 1: Check if target user is part of the target department
       const targetUserDepartments = await targetUser.getMember_departments();
       const isInTargetDept = targetUserDepartments.some(dept => dept.id === targetDeptId);
+      const department = await Departments.findByPk(targetDeptId);
+      if (!department) {
+        res.status(404).json({ message: 'Department not found' });
+        return;
+      }
 
       if (!isInTargetDept) {
         res.status(403).json({ error: 'User is not a member of the specified department.' });
@@ -157,7 +169,47 @@ router.put('/:deptId/users/:userId',
       const { name, role_id, adress, phone, mail } = req.body;
 
       if (name !== undefined) targetUser.name = name;
-      if (role_id !== undefined) targetUser.role_id = role_id;
+      if (role_id !== undefined && role_id !== null) {
+        // Check if target user is a department manager
+        if (targetUser.id === currentUser.id) {
+          res.status(403).json({ error: 'You cannot change your own role.' });
+          return;
+        }
+        const isManager = await Departments.findOne({ where: { manager_id: targetUser.id } });
+
+        // Fetch new role's permissions
+        const newRole = await Roles.findByPk(role_id, {
+          include: [{ model: Permissions, as: 'permissions' }],
+        });
+
+        if (!newRole) {
+          res.status(400).json({ error: 'Invalid role_id. Role not found.' });
+          return;
+        }
+
+        // If user is a manager, make sure new role still allows management
+        if (isManager) {
+          // If user is a manager in the main department, make sure their role can not be changed to the role other than 
+          if (department.parent_id == null && newRole.id != 2) {
+            res.status(403).json({
+              error: 'Target user is the main department manager. Cannot change their role to other than chairman unless main department manager changed to someone else.',
+            });
+            return;
+          }
+          const newPermissions = newRole.permissions || [];
+          const hasUserLevel3 = newPermissions.some(p => p.category === 'Users' && p.level >= 3);
+
+          if (department.parent_id !== undefined && department.parent_id !== null && !hasUserLevel3) {
+            res.status(403).json({
+              error: 'Target user is a department manager. Cannot assign a role without sufficient permissions (Users >= 3).',
+            });
+            return;
+          }
+        }
+
+        // Passed all checks
+        targetUser.role_id = role_id;
+      }
       if (adress !== undefined) targetUser.adress = adress;
       if (phone !== undefined) targetUser.phone = phone;
       if (mail !== undefined) targetUser.mail = mail;
@@ -174,7 +226,7 @@ router.put('/:deptId/users/:userId',
   }
 );
 
-// 2. Delete user (if user is in allowed department)
+// Delete user (if user is in allowed department)
 router.delete('/:id/users/:userId',
   authenticateJWT,
   requirePermission('Users', 4),
@@ -183,11 +235,11 @@ router.delete('/:id/users/:userId',
     const userIdToDelete = parseInt(req.params.userId, 10);
     const currentUser = await Users.findByPk(req.user!.id);
 
-
     if (!currentUser) {
       res.status(401).json({ error: 'Invalid user' });
       return;
     }
+
     if (isNaN(deptId) || isNaN(userIdToDelete)) {
       res.status(400).json({ message: 'Invalid department ID or user ID' });
       return;
@@ -210,21 +262,28 @@ router.delete('/:id/users/:userId',
       const userDepartments = await currentUser.getMember_departments();
       const userDeleteDepartments = await userToDelete.getMember_departments();
 
-
       const isUserInDept = userDeleteDepartments.some(d => d.id === department.id);
       if (!isUserInDept) {
         res.status(404).json({ error: 'Requested User not found in the requested Department' });
         return;
       }
-      const isAuthorized = CheckOwnAndSubDeparmentAllowance(department.id, userDepartments);
 
+      const isAuthorized = CheckOwnAndSubDeparmentAllowance(department.id, userDepartments);
       if (!isAuthorized) {
         res.status(403).json({ message: 'Forbidden: you cannot delete this user' });
         return;
       }
 
-      const options: DestroyWithUserOptions<typeof Users> = { userId: currentUser.id };
+      // 🚫 Prevent deleting a user if they are a department manager
+      const isManager = await Departments.findOne({ where: { manager_id: userIdToDelete } });
+      if (isManager) {
+        res.status(400).json({
+          error: 'Cannot delete user. They are assigned in  a department manager. Reassign first.'
+        });
+        return;
+      }
 
+      const options: DestroyWithUserOptions<typeof Users> = { userId: currentUser.id };
       await userToDelete.destroy(options);
 
       res.status(200).json({ message: 'User deleted successfully' });
@@ -246,27 +305,27 @@ router.get('/:userId/task-stats',
     const currentUserId = req.user!.id;
 
     if (isNaN(targetUserId)) {
-       res.status(400).json({ error: 'Invalid user ID' });
-       return;
+      res.status(400).json({ error: 'Invalid user ID' });
+      return;
     }
 
     try {
       const targetUser = await Users.findByPk(targetUserId);
       if (!targetUser) {
-         res.status(404).json({ error: 'User not found' });
-       return;
+        res.status(404).json({ error: 'User not found' });
+        return;
       }
 
       const permissionLevel = req.permissionLevel;
       if (permissionLevel === undefined) {
-         res.status(500).json({ error: 'Permission level not set. Middleware may be missing.' });
-       return;
+        res.status(500).json({ error: 'Permission level not set. Middleware may be missing.' });
+        return;
       }
 
       // 🔒 Level 1 can only view their own stats
       if (permissionLevel === 1 && targetUserId !== currentUserId) {
-         res.status(403).json({ error: 'Not authorized to view this user\'s tasks' });
-       return;
+        res.status(403).json({ error: 'Not authorized to view this user\'s tasks' });
+        return;
       }
 
       // 📊 Build query
@@ -303,6 +362,148 @@ router.get('/:userId/task-stats',
     } catch (error) {
       console.error('Error fetching user task stats:', error);
       res.status(500).json({ error: 'Failed to fetch task stats' });
+    }
+  }
+);
+
+/**
+ * GET /api/users/:id/allusers
+ * Get users that is not on the department
+ */
+router.get('/:id/allusers',
+  authenticateJWT,
+  requirePermission('Departments', 4),
+  async (req: Request, res: Response) => {
+    try {
+      const deptId = parseInt(req.params.id);
+      if (isNaN(deptId)) {
+        res.status(400).json({ error: 'Invalid department' });
+        return;
+      }
+
+      const currentUser = await Users.findByPk(req.user!.id);
+      if (!currentUser) {
+        res.status(401).json({ error: 'Invalid user' });
+        return;
+      }
+
+      const dept = await Departments.findByPk(deptId);
+      if (!dept) {
+        res.status(404).json({ error: 'Department not found' });
+        return;
+      }
+
+      // Get users in department
+      const departmentMembers = await dept.getMembers({ attributes: ['id'] });
+      const memberIds = departmentMembers.map(user => user.id);
+
+      // Get all users NOT in the department
+      const nonMembers = await Users.findAll({
+        where: {
+          id: {
+            [Op.notIn]: memberIds,
+          },
+        },
+        include: [
+          {
+            model: Roles,
+            as: 'role',
+            attributes: ['role_name'],
+          },
+        ],
+        attributes: ['id', 'name'], // You can add more if needed
+      });
+
+      // Format the response
+      const formatted = nonMembers.map(user => ({
+        id: user.id,
+        name: user.name,
+        role: user.role?.role_name || 'No Role',
+      }));
+
+      res.status(200).json({ users: formatted });
+
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: 'Error fetching users', error: err });
+    }
+  }
+);
+
+/**
+ * GET /api/users/visible
+ * Get users visible to the current user depending on permission level
+ */
+router.get('/visibleusers',
+  authenticateJWT,
+  requirePermission('Departments', 1),
+  async (req: Request, res: Response) => {
+    const currentUserId = req.user!.id;
+    const permissionLevel = req.permissionLevel;
+
+    try {
+      // If permission level is 4 or higher, return all users
+      if (permissionLevel === undefined) {
+        res.status(500).json({ error: 'Permission level not set. Middleware may be missing.' });
+        return;
+      }
+      if (permissionLevel >= 4) {
+        const allUsers = await Users.findAll({
+          include: [
+            {
+              model: Roles,
+              as: 'role',
+              attributes: ['role_name'],
+            },
+          ],
+          attributes: ['id', 'name', 'mail', 'role_id'],
+        });
+
+        res.status(200).json({ users: allUsers });
+        return;
+      }
+
+      // Else, get departments where the user is the manager
+      const managedDepartments = await Departments.findAll({
+        where: { manager_id: currentUserId },
+      });
+
+      if (managedDepartments.length === 0) {
+        res.status(200).json({ users: [] }); // No managed departments
+        return;
+      }
+
+      // Get all member users in those departments
+      const allMemberPromises = managedDepartments.map((dept) => dept.getMembers());
+      const allMembersNested = await Promise.all(allMemberPromises);
+
+      // Flatten and deduplicate users
+      const memberMap: Record<number, Users> = {};
+      for (const userList of allMembersNested) {
+        for (const user of userList) {
+          memberMap[user.id] = user;
+        }
+      }
+
+      const visibleUsers = Object.values(memberMap);
+
+      // Optionally include roles
+      const usersWithRoles = await Promise.all(
+        visibleUsers.map(async (user) => {
+          const role = await user.getRole(); // Assuming this association exists
+          return {
+            id: user.id,
+            name: user.name,
+            mail: user.mail,
+            role: role?.role_name || 'No Role',
+          };
+        })
+      );
+
+      res.status(200).json({ users: usersWithRoles });
+    } catch (err) {
+      console.error('Error fetching visible users:', err);
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 );

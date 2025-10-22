@@ -6,6 +6,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '../../context/authcontext';
 import { useRouter } from 'expo-router';
+import Toast from 'react-native-toast-message';
+import { showToast } from '@/utils/utils';
 
 const schema = z.object({
   mail: z.string().email({ message: 'Invalid email address' }),
@@ -38,7 +40,7 @@ export default function LoginScreen() {
       await login(data.mail, data.password);
       router.replace('/'); // navigate to home after login
     } catch (error: any) {
-      Alert.alert('Login failed', error.message || 'Invalid credentials');
+      showToast('error',"Hata!", "Giriş Başarısız")
     }
   };
 
@@ -73,16 +75,20 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 24,
     justifyContent: 'center',
+    backgroundColor: '#121212', // dark background
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 24,
     textAlign: 'center',
+    color: '#f1f1f1', // light text
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#555', // darker border
+    backgroundColor: '#1e1e1e', // dark input background
+    color: '#f1f1f1', // input text color
     padding: 12,
     borderRadius: 6,
     marginBottom: 12,

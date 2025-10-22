@@ -12,7 +12,11 @@ import {
 } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { useAuth } from "../../context/authcontext";
-import { fetchTaskStats, getUserDepartments } from "../../services/api";
+import {
+  fetchTaskStats,
+  getUserDepartments,
+  getVisibleUsers,
+} from "../../services/api";
 import {
   DepartmentTaskStatsResponse,
   DepartmentWithType,
@@ -23,10 +27,13 @@ import {
   MaterialCommunityIcons,
   MaterialIcons,
 } from "@expo/vector-icons";
-import BottomSheet from "@gorhom/bottom-sheet";
+import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { createDepartment } from "../../services/api"; // or wherever you defined it
 import { useRef } from "react";
 import { CreateDepartmentForm } from "../../components/CreateDepartmentForm";
+import { NoPermission } from "@/components/NoPermission";
+import { showToast } from "@/utils/utils";
+import { UserList } from "@/types/user";
 
 export default function Home() {
   const [departments, setDepartments] = useState<DepartmentWithType[]>([]);
@@ -36,7 +43,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
 
   const bottomSheetRef = useRef<BottomSheet>(null);
@@ -49,6 +56,9 @@ export default function Home() {
   const [isCreating, setIsCreating] = useState(false);
   const isWeb = Platform.OS === "web";
   const [modalVisible, setModalVisible] = useState(false);
+
+  const [visibleUsers, setVisibleUsers] = useState<UserList[]>([]);
+  const [selectedManagerId, setSelectedManagerId] = useState<number>(0);
 
   const fetchDepartments = async () => {
     if (!hasPermission("Departments", 1)) {
@@ -102,15 +112,74 @@ export default function Home() {
     }
   };
 
+  const fetchVisibleUsers = async () => {
+    try {
+      if (hasPermission("Departments", 1)) {
+        const users: UserList[] = await getVisibleUsers();
+        if (users.length > 0) {
+          setVisibleUsers(users);
+          setSelectedManagerId(users[0].id);
+        } else {
+          // fallback to self
+          if (user) {
+            setVisibleUsers([
+              {
+                id: user.id,
+                name: user.name,
+                role: {
+                  role_id: user.role_id,
+                  role_name: user.role,
+                },
+              },
+            ]);
+            setSelectedManagerId(user.id);
+          }
+        }
+      } else {
+        // fallback to self
+        if (user) {
+          setVisibleUsers([
+            {
+              id: user.id,
+              name: user.name,
+              role: {
+                role_id: user.role_id,
+                role_name: user.role,
+              },
+            },
+          ]);
+          setSelectedManagerId(user.id);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch visible users:", e);
+      // fallback to self
+      if (user) {
+        setVisibleUsers([
+          {
+            id: user.id,
+            name: user.name,
+            role: {
+              role_id: user.role_id,
+              role_name: user.role,
+            },
+          },
+        ]);
+        setSelectedManagerId(user.id);
+      }
+    }
+  };
+
   useEffect(() => {
     fetchDepartments();
+    fetchVisibleUsers();
   }, []);
 
   useEffect(() => {
-  if (departments.length > 0) {
-    setSelectedParentId(departments[0].id);
-  }
-}, [departments]);
+    if (departments.length > 0) {
+      setSelectedParentId(departments[0].id);
+    }
+  }, [departments]);
 
   const handleDeptPress = (id: number) => {
     router.push(`/departments/${id}`);
@@ -158,11 +227,7 @@ export default function Home() {
             </View>
           </TouchableOpacity>
         ) : (
-          <View>
-            <Text style={styles.error}>
-              Departmanları görüntüleme yetkiniz yoktur
-            </Text>
-          </View>
+          <NoPermission message="Departmanları görüntüleme yetkiniz yoktur." />
         )}
 
         {/* Show task stats only if user has Tasks permission */}
@@ -213,12 +278,8 @@ export default function Home() {
                     color={"#36B700"}
                   />
                   :{stats?.stats.approved || 0},{" "}
-                  <MaterialIcons
-                    name="cancel"
-                    size={15}
-                    color={"#FF0000"}
-                  />
-                  :{stats?.stats.cancelled || 0}
+                  <MaterialIcons name="cancel" size={15} color={"#FF0000"} />:
+                  {stats?.stats.cancelled || 0}
                   {stats?.stats.not_assigned ? (
                     <>
                       ,{" "}
@@ -235,11 +296,7 @@ export default function Home() {
             </View>
           </TouchableOpacity>
         ) : (
-          <View>
-            <Text style={styles.error}>
-              Görevleri görünteleme yetkiniz yoktur
-            </Text>
-          </View>
+          <NoPermission message="Görevleri görünteleme yetkiniz yoktur." />
         )}
       </View>
     );
@@ -250,7 +307,7 @@ export default function Home() {
       setSelectedParentId(departments[0].id); // fallback parent
       bottomSheetRef.current?.expand();
     } else {
-      alert("Departman bulunamadı, önce en az 1 departman oluşturulmalı.");
+      showToast("error", "Hata!", "Departman oluşturulurken bir hata oluştu.");
     }
   };
 
@@ -260,23 +317,34 @@ export default function Home() {
 
   const handleCreateDepartment = async () => {
     if (!newDeptName.trim()) {
-      alert("Lütfen departman ismi girin");
+      showToast("info", "Bilgi", "Lütfen departman ismi girin.");
       return;
     }
 
     setIsCreating(true);
-    const created = await createDepartment(newDeptName, selectedParentId || 0);
-    setIsCreating(false);
+    try {
+      const created = await createDepartment(
+        newDeptName,
+        selectedParentId || 0,
+        selectedManagerId // <-- pass manager_id
+      );
 
-    if (created) {
-      alert("Departman başarıyla oluşturuldu");
-      closeSheet();
-      setModalVisible(false);
-      await fetchDepartments();
-      setNewDeptName("");
-      setSelectedParentId(0);
-    } else {
-      alert("Departman oluşturulamadı");
+      setIsCreating(false);
+
+      if (created) {
+        showToast("success", "Başarılı!", "Departman başarıyla oluşturuldu");
+        closeSheet();
+        setModalVisible(false);
+        await fetchDepartments();
+        setNewDeptName("");
+        setSelectedParentId(0);
+        setSelectedManagerId(visibleUsers[0]?.id ?? 0);
+      } else {
+        showToast("error", "Hata!", "Departman oluşturulamadı");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("error", "Hata!", "Departman oluşturulurken bir hata oluştu");
     }
   };
 
@@ -291,11 +359,7 @@ export default function Home() {
           <Text style={styles.error}>{error}</Text>
         </View>
       ) : !hasPermission("Departments", 1) ? ( // <-- Permission check here
-        <View style={styles.container}>
-          <Text style={styles.error}>
-            Departmanları görüntüleme yetkiniz yoktur.
-          </Text>
-        </View>
+        <NoPermission message="Departmanları görüntüleme yetkiniz yoktur." />
       ) : (
         <>
           {/* Sticky top button */}
@@ -323,7 +387,7 @@ export default function Home() {
               keyExtractor={(item) => item.id.toString()}
               renderItem={renderDepartment}
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />} // 👈 Adds vertical space between items
-  ListFooterComponent={<View style={{ height: 100 }} />} // 👈 See below
+              ListFooterComponent={<View style={{ height: 100 }} />} // 👈 See below
             />
             {isWeb ? (
               <Modal
@@ -341,6 +405,13 @@ export default function Home() {
                       onChangeDeptName={setNewDeptName}
                       onSubmit={handleCreateDepartment}
                       isLoading={isCreating}
+                      visibleUsers={visibleUsers}
+                      selectedManagerId={selectedManagerId}
+                      onSelectManager={setSelectedManagerId}
+                      canSelectManager={
+                        hasPermission("Departments", 1) &&
+                        visibleUsers.length > 1
+                      }
                     />
 
                     <TouchableOpacity
@@ -361,15 +432,23 @@ export default function Home() {
                 snapPoints={snapPoints}
                 enablePanDownToClose
               >
-                <CreateDepartmentForm
-                  departments={departments}
-                  selectedParentId={selectedParentId}
-                  onSelectParent={setSelectedParentId}
-                  newDeptName={newDeptName}
-                  onChangeDeptName={setNewDeptName}
-                  onSubmit={handleCreateDepartment}
-                  isLoading={isCreating}
-                />
+                <BottomSheetScrollView>
+                  <CreateDepartmentForm
+                    departments={departments}
+                    selectedParentId={selectedParentId}
+                    onSelectParent={setSelectedParentId}
+                    newDeptName={newDeptName}
+                    onChangeDeptName={setNewDeptName}
+                    onSubmit={handleCreateDepartment}
+                    isLoading={isCreating}
+                    visibleUsers={visibleUsers}
+                    selectedManagerId={selectedManagerId}
+                    onSelectManager={setSelectedManagerId}
+                    canSelectManager={
+                      hasPermission("Departments", 1) && visibleUsers.length > 1
+                    }
+                  />
+                </BottomSheetScrollView>
               </BottomSheet>
             )}
 
@@ -396,15 +475,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
+    backgroundColor: "#121212",
   },
   buttonTitle: {
     fontSize: 12,
     fontWeight: "bold",
     opacity: 0.8,
+    color: "#ffffff",
   },
   loader: {
     flex: 1,
     justifyContent: "center",
+    alignItems: "center",
   },
   error: {
     color: "red",
@@ -415,7 +497,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     alignItems: "center",
   },
-
   deptButton: {
     paddingVertical: 5,
     paddingHorizontal: 16,
@@ -424,43 +505,37 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
   },
-
   ownDeptButton: {
-    backgroundColor: "#e3f9fcff",
+    backgroundColor: "#1E2A38",
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#444",
   },
-
   subDeptButton: {
-    backgroundColor: "#fff",
+    backgroundColor: "#1E1E1E",
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#444",
   },
-
   deptButtonText: {
     fontSize: 16,
     fontWeight: "bold",
+    color: "#ffffff",
   },
-
   ownDeptText: {
-    color: "#005abbff",
+    color: "#4FC3F7",
   },
-
   subDeptText: {
-    color: "#333",
+    color: "#dddddd",
   },
-
   statsButton: {
-    backgroundColor: "#427a72ff",
+    backgroundColor: "#2D4D46",
     borderWidth: 1,
-    borderColor: "#141414",
+    borderColor: "#555",
     borderRadius: 12,
     paddingVertical: 5,
     paddingHorizontal: 16,
     width: "100%",
     alignItems: "center",
   },
-
   statsText: {
     color: "#fff",
     fontSize: 15,
@@ -477,89 +552,53 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  fabText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
   topBar: {
     width: "100%",
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#000000ff",
+    borderBottomColor: "#333",
     flexDirection: "row",
     alignItems: "center",
-  justifyContent: "center", // 👈 center all child components
-  flexWrap: "wrap", 
+    justifyContent: "center",
+    flexWrap: "wrap",
+    backgroundColor: "#1E1E1E",
   },
   topBarButton: {
-    backgroundColor: "#4EFF8F",
+    backgroundColor: "#25994fff",
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 6,
   },
-
   topBarButtonText: {
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",
   },
-
   searchInput: {
     marginLeft: 10,
-    backgroundColor: "#fff",
+    backgroundColor: "#333",
+    color: "#fff",
     paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: "#555",
     borderRadius: 6,
     height: 36,
     fontSize: 14,
   },
-
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "#000000ff",
     justifyContent: "center",
     alignItems: "center",
   },
-
   modalContent: {
-    backgroundColor: "white",
+    backgroundColor: "#1E1E1E",
     padding: 20,
     borderRadius: 12,
     width: "90%",
     maxWidth: 500,
   },
-
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 12,
-  },
-
-  modalInput: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 12,
-  },
-
-  modalPickerContainer: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-
-  modalButton: {
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-
   modalCancelButton: {
     marginTop: 10,
     alignItems: "center",

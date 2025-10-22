@@ -1,8 +1,8 @@
 import express, { Request, Response } from 'express';
 import authenticateJWT from '../middlewares/authjwt.middleware.js';
 import requirePermission from '../middlewares/requirePermission.middleware.js';
-import { Users, Departments, Roles, Tasks, DepartmentMembers } from '../models/index.js';
-import { getOwnAndSubDepartments } from '../utils/utils.js';
+import { Users, Departments, Roles, Tasks, DepartmentMembers, RolePermissions } from '../models/index.js';
+import { getOwnAndSubDepartments, getUserPermissions } from '../utils/utils.js';
 import { CreateWithUserOptions, DestroyWithUserOptions, UpdateWithUserOptions } from '../types/hookparameter.js';
 import { DepartmentAttributes } from '../models/departments.model.js';
 import { DepartmentMemberAttributes } from '../models/departmentMembers.model.js';
@@ -13,7 +13,7 @@ const router = express.Router();
 
 /**
  * GET /api/departments
- * List all accessible departments
+ * List all accessible departments a user can have
  */
 router.get('/',
   authenticateJWT,
@@ -29,7 +29,6 @@ router.get('/',
 
       if (!currentUser) {
         res.status(404).json({ error: 'User not found' });
-        console.log("not found");
         return;
       }
 
@@ -51,9 +50,16 @@ router.get('/',
       // Remove duplicates just in case
       subDepartmentIds = [...new Set(subDepartmentIds)];
 
-      const subDepartments = subDepartmentIds.length
-        ? await Departments.findAll({ where: { id: subDepartmentIds } })
-        : [];
+      const ownDepartmentIds = ownDepartments.map(dept => dept.id);
+
+      let subDepartments: Departments[] = [];
+      if (subDepartmentIds.length) {
+        subDepartments = await Departments.findAll({
+          where: {
+            id: subDepartmentIds.filter(id => !ownDepartmentIds.includes(id)),
+          },
+        });
+      }
 
       res.json({
         ownDepartments,
@@ -144,8 +150,16 @@ router.get('/:deptId',
         return;
       }
 
-      // Send full department info
-      res.json(department);
+      const subdepartments = await department.getSubdepartments();
+      let subDepartmentCount = 0;
+      if (permissionLevel === 4)
+        subDepartmentCount = subdepartments.length;
+
+      // Send full department info if the permission is 4
+      res.json({
+        department: department,
+        subDepartmentCount
+      });
 
     } catch (err) {
       console.error("Department fetch error:", err instanceof Error ? err.message : err);
@@ -253,135 +267,87 @@ router.get('/:id/users',
 );
 
 /**
- * GET /api/departments/:deptId/users/:userId
- * Get a single user of a department (if allowed)
- */
-router.get('/:deptId/users/:userId',
-  authenticateJWT,
-  requirePermission('Departments', 1),
-  async (req: Request, res: Response) => {
-    try {
-      const deptId = parseInt(req.params.deptId);
-      const targetUserId = parseInt(req.params.userId);
-
-      if (isNaN(deptId) || isNaN(targetUserId)) {
-        res.status(400).json({ error: 'Invalid department or user ID' });
-        return;
-      }
-
-      const currentUser = await Users.findByPk(req.user!.id);
-      if (!currentUser) {
-        res.status(401).json({ error: 'Invalid user' });
-        return;
-      }
-
-      const permissionLevel = req.permissionLevel;
-      if (permissionLevel === undefined) {
-        res.status(500).json({ error: 'Permission level not set. Middleware may be missing.' });
-        return;
-      }
-
-      const userDepartments = await currentUser.getMember_departments();
-
-      // Check access to the requested department
-      let isAuthorized = userDepartments.some(d => d.id === deptId);
-
-      if (!isAuthorized && permissionLevel >= 2) {
-        for (const dept of userDepartments) {
-          const allowedSubDeptIds = await getOwnAndSubDepartments(dept.id);
-          if (allowedSubDeptIds.includes(deptId)) {
-            isAuthorized = true;
-            break;
-          }
-        }
-      }
-
-      if (!isAuthorized) {
-        res.status(403).json({ error: 'Not authorized to view this department' });
-        return;
-      }
-
-      const dept = await Departments.findByPk(deptId);
-      if (!dept) {
-        res.status(404).json({ error: 'Department not found' });
-        return;
-      }
-
-      // Check if the target user is a member of the department
-      const members = await dept.getMembers({ where: { id: targetUserId }, include: [{ model: Roles, as: 'role', attributes: ['id', 'role_name'] }] });
-
-      if (members.length === 0) {
-        res.status(404).json({ error: 'User not found in this department' });
-        return;
-      }
-
-      const targetUser = members[0].toJSON();
-
-      if (permissionLevel === 1) {
-        // Limited info for level 1 users
-        res.json({
-          id: targetUser.id,
-          name: targetUser.name,
-          email: targetUser.mail,
-          role: targetUser.role?.role_name ?? null
-        });
-        return;
-      } else {
-        // Full info for level 2+
-        const { password, ...safeUser } = targetUser;
-        res.json(safeUser);
-        return;
-      }
-
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: 'Error fetching user', error: err });
-    }
-  }
-);
-
-/**
  * POST /api/departments
  * Create a department (Level 3 required)
  */
 router.post('/',
   authenticateJWT,
-  requirePermission('Departments', 4),
+  requirePermission('Departments', 4), // Still required by default
   async (req: Request, res: Response) => {
-    const { dept_name, parent_id } = req.body;
+    const { dept_name, parent_id, manager_id } = req.body;
 
     try {
-      if (!parent_id || isNaN(parent_id) || parent_id <= 0) {
-        res.status(400).json({ error: 'parent_id is required and must be a positive number' });
+      // Basic param validation
+      if (!manager_id || isNaN(manager_id) || manager_id <= 0) {
+        res.status(400).json({ error: 'manager_id is required and must be a positive number' });
+        return;
       }
 
-      const currentUser = await Users.findByPk(req.user!.id);
+      const currentUser = await Users.findByPk(req.user!.id, {
+        include: [{ model: Roles, as: 'role' }]
+      });
       if (!currentUser) {
         res.status(401).json({ error: 'Invalid user' });
         return;
       }
 
-      const userDepartments = await currentUser.getMember_departments();
-      let isAuthorized = false;
-
-      for (const dept of userDepartments) {
-        const allowedSubDeptIds = await getOwnAndSubDepartments(dept.id);
-        if (allowedSubDeptIds.includes(parent_id)) {
-          isAuthorized = true;
-          break;
-        }
-      }
-
-      if (!isAuthorized) {
-        res.status(403).json({ error: 'Not authorized to assign parent_id' });
+      // ✅ 1. Check if manager_id is a valid user
+      const managerUser = await Users.findByPk(manager_id);
+      if (!managerUser) {
+        res.status(400).json({ error: 'Provided manager_id does not exist' });
         return;
       }
 
-      const option: CreateWithUserOptions<DepartmentAttributes> = { userId: req.user!.id };
-      const newDept = await Departments.create({ dept_name, parent_id }, option);
-      res.status(201).json(newDept);
+      // ✅ 2. Check permission levels
+      const userPermissions = await getUserPermissions(managerUser);
 
+      const hasUserLevel3 = userPermissions.some(p => p.category === 'Users' && p.level >= 3);
+      const managerUserRole = await managerUser.getRole();
+
+      if (parent_id === null || parent_id === undefined) {
+        if (parent_id === null) {
+          res.status(400).json({ error: 'parent_id can not be null' });
+          return;
+        }
+        if (managerUserRole.id != 2) {
+          res.status(403).json({ error: 'For top-level department, manager need to be the chairman role' });
+          return;
+        }
+      } else {
+        if (!hasUserLevel3) {
+          res.status(403).json({ error: 'For a sub-department, manager need to have Users:3 or higher permission' });
+          return;
+        }
+
+        if (isNaN(parent_id) || parent_id <= 0) {
+          res.status(400).json({ error: 'parent_id must be a positive number or null' });
+          return;
+        }
+
+        // ✅ 3. Check authorization to assign that parent_id
+        const userDepartments = await currentUser.getMember_departments();
+        let isAuthorized = false;
+
+        for (const dept of userDepartments) {
+          const allowedSubDeptIds = await getOwnAndSubDepartments(dept.id);
+          if (allowedSubDeptIds.includes(parent_id)) {
+            isAuthorized = true;
+            break;
+          }
+        }
+
+        if (!isAuthorized) {
+          res.status(403).json({ error: 'Not authorized to assign this parent_id' });
+          return;
+        }
+      }
+
+      const option: CreateWithUserOptions<DepartmentAttributes> = { userId: req.user!.id };
+      const newDept = await Departments.create({ dept_name, parent_id, manager_id }, option);
+      await newDept.addMember(managerUser);
+      res.status(201).json(newDept);
     } catch (err) {
+      console.error(err);
       res.status(500).json({ message: 'Error creating department', error: err });
     }
   }
@@ -396,19 +362,27 @@ router.put('/:id',
   requirePermission('Departments', 4),
   async (req: Request, res: Response) => {
     const deptId = parseInt(req.params.id);
-    const { dept_name, parent_id } = req.body;
+    const { dept_name, parent_id, manager_id } = req.body;
 
     try {
-      const currentUser = await Users.findByPk(req.user!.id);
+      const currentUser = await Users.findByPk(req.user!.id, {
+        include: [{ model: Roles, as: 'role' }]
+      });
       if (!currentUser) {
         res.status(401).json({ error: 'Invalid user' });
         return;
       }
 
+      const dept = await Departments.findByPk(deptId);
+      if (!dept) {
+        res.status(404).json({ error: 'Department not found' });
+        return;
+      }
+
+      // ✅ Ensure user has access to edit this department
       const userDepartments = await currentUser.getMember_departments();
       let isAuthorized = false;
 
-      // Check if user is authorized to update this department
       for (const dept of userDepartments) {
         const allowedSubDeptIds = await getOwnAndSubDepartments(dept.id);
         if (allowedSubDeptIds.includes(deptId)) {
@@ -422,8 +396,42 @@ router.put('/:id',
         return;
       }
 
-      // If parent_id is being changed, validate it
-      if (parent_id && parent_id > 0) {
+      // ✅ 1. Validate manager_id if provided
+      if (manager_id) {
+        const managerUser = await Users.findByPk(manager_id);
+        if (!managerUser) {
+          res.status(400).json({ error: 'Provided manager_id does not exist' });
+          return;
+        }
+        const deptMembers = await dept.getMembers(); // Uses the alias
+        const isMember = deptMembers.some(member => member.id === managerUser.id);
+        if (!isMember) {
+          res.status(400).json({ error: 'Assigned manager must be a member of the department' });
+          return;
+        }
+        const managerUserRole = await managerUser.getRole();
+        const userPermissions = await getUserPermissions(managerUser);
+        const hasUserLevel3 = userPermissions.some(p => p.category === 'Users' && p.level >= 3);
+        if (dept.parent_id === null && managerUserRole.id != 2) {
+          res.status(403).json({ error: 'For top-level department, manager need to be the chairman role' });
+          return;
+        } else if (parent_id !== undefined && parent_id !== null && !hasUserLevel3) {
+          res.status(403).json({ error: 'For a sub-department, manager need to have Users:3 or higher permission' });
+          return;
+        }
+      }
+
+      // ✅ 2. Validate parent_id logic
+
+      if (dept.parent_id != null && parent_id == null) {
+        res.status(400).json({ error: 'A sub department cannot be changed to a main department' });
+        return;
+      }
+      if (parent_id !== undefined && parent_id !== null) {
+        if (parent_id === deptId) {
+          res.status(400).json({ error: 'A department cannot be its own parent' });
+          return;
+        }
         let parentValid = false;
         for (const dept of userDepartments) {
           const allowedSubDeptIds = await getOwnAndSubDepartments(dept.id);
@@ -439,17 +447,13 @@ router.put('/:id',
         }
       }
 
-      const dept = await Departments.findByPk(deptId);
-      if (!dept) {
-        res.status(404).json({ error: 'Department not found' });
-        return;
-      }
-
+      // ✅ All checks passed, proceed with update
       const option: UpdateWithUserOptions<DepartmentAttributes> = { userId: req.user!.id };
-      await dept.update({ dept_name, parent_id }, option);
-      res.json(dept);
+      await dept.update({ dept_name, parent_id, manager_id }, option);
 
+      res.json(dept);
     } catch (err) {
+      console.error(err);
       res.status(500).json({ message: 'Error updating department', error: err });
     }
   }
@@ -494,6 +498,15 @@ router.delete('/:id',
         return;
       }
 
+      const subdepartments = await dept.getSubdepartments();
+      if (subdepartments.length > 0) {
+        res.status(400).json({
+          error: 'Department has subdepartments. Please remove or reassign them before deleting this department.',
+          subDepartmentCount: subdepartments.length,
+        });
+        return;
+      }
+
       const option: DestroyWithUserOptions<DepartmentAttributes> = { userId: req.user!.id };
       await dept.destroy(option);
       res.json({ message: 'Department deleted' });
@@ -525,8 +538,8 @@ router.post('/:id/users/add',
         return;
       }
 
-      const members = await department.getMembers({ where: { member_id: userId } });
-      if (members.length > 0) {
+      const isMember = await department.hasMember(user);
+      if (isMember) {
         res.status(200).json({ message: 'User already in department' });
         return;
       }
@@ -552,7 +565,13 @@ router.delete('/:id/users/:userId/remove',
     const userId = parseInt(req.params.userId);
 
     try {
-      const department = await Departments.findByPk(deptId);
+      const department = await Departments.findByPk(deptId, {
+        include: [{
+          association: 'members',
+          attributes: ['id']
+        }]
+      });
+
       const user = await Users.findByPk(userId);
 
       if (!department || !user) {
@@ -560,8 +579,30 @@ router.delete('/:id/users/:userId/remove',
         return;
       }
 
-      // Remove user from department (via belongsToMany)
-      await department.removeMember(user); // uses the alias "members"
+      // 🚫 Prevent removing the manager of the department
+      if (department.manager_id === userId) {
+        res.status(400).json({
+          error: 'Cannot remove the manager of the department. Assign a new manager first.'
+        });
+        return;
+      }
+
+      // Check if department is top-level
+      const isTopLevel = department.parent_id === null;
+
+      // Check if this user is the only one in the department
+      const currentMembers = department.members || [];
+      const isOnlyUser = currentMembers.length === 1 && currentMembers[0].id === userId;
+
+      if (isTopLevel && isOnlyUser) {
+        res.status(400).json({
+          error: 'Cannot remove the only user from a top-level department. Assign another user first.'
+        });
+        return;
+      }
+
+      // Remove user from department
+      await department.removeMember(user);
 
       res.json({ message: 'User removed from department' });
     } catch (err) {
@@ -794,6 +835,151 @@ router.get('/:id/detailed-stats',
     }
   }
 );
+
+/**
+ * GET /api/departments/:id/tasks
+ * Get tasks of a department (if allowed)
+ */
+router.get('/:id/tasks',
+  authenticateJWT,
+  requirePermission('Tasks', 1),
+  async (req: Request, res: Response) => {
+    try {
+      const deptId = parseInt(req.params.id);
+      if (isNaN(deptId)) {
+        res.status(400).json({ error: 'Invalid department ID' });
+        return;
+      }
+
+      const currentUser = await Users.findByPk(req.user!.id);
+      if (!currentUser) {
+        res.status(401).json({ error: 'Invalid user' });
+        return;
+      }
+
+      const permissionLevel = req.permissionLevel;
+      if (permissionLevel === undefined) {
+        res.status(500).json({ error: 'Permission level not set' });
+        return;
+      }
+
+      const department = await Departments.findByPk(deptId);
+      if (!department) {
+        res.status(404).json({ error: 'Department not found' });
+        return;
+      }
+
+      const userDepartments = await currentUser.getMember_departments();
+      const isMember = userDepartments.some(d => d.id === deptId);
+
+      if (permissionLevel < 3 && !isMember) {
+        res.status(403).json({ error: 'Not authorized to access this department' });
+        return;
+      }
+
+      let tasks: Tasks[] = [];
+
+      if (permissionLevel >= 3) {
+        // Admin or similar: full access to department's tasks
+        tasks = await Tasks.findAll({
+          where: { assigned_dept_id: deptId },
+          include: includeRelations,
+        });
+      } else {
+        // Limited access: only tasks where user is involved
+        const [creatorTasks, assignedTasks, authorizedTasks] = await Promise.all([
+          Tasks.findAll({
+            where: {
+              creator_id: currentUser.id,
+              assigned_dept_id: deptId,
+            },
+            include: includeRelations,
+          }),
+          Tasks.findAll({
+            where: {
+              assigned_user_id: currentUser.id,
+              assigned_dept_id: deptId,
+            },
+            include: includeRelations,
+          }),
+          Tasks.findAll({
+            where: {
+              authorized_user_id: currentUser.id,
+              assigned_dept_id: deptId,
+            },
+            include: includeRelations,
+          }),
+        ]);
+
+        // Deduplicate by task ID using a Map
+        const taskMap = new Map<number, Tasks>();
+        [...creatorTasks, ...assignedTasks, ...authorizedTasks].forEach(task => {
+          taskMap.set(task.id, task);
+        });
+
+        tasks = Array.from(taskMap.values());
+      }
+
+      // Shape response according to permission
+      const response = tasks.map(task => {
+        const taskJson = task.toJSON();
+        const basic = {
+          id: taskJson.id,
+          title: taskJson.title,
+          status: taskJson.status,
+          requester_rank: taskJson.requester_rank,
+          department: taskJson.assignedDepartment?.dept_name ?? null,
+          assigned_user: taskJson.assignedUser?.name ?? null,
+          updater: taskJson.updater?.name ?? null,
+        };
+
+        if (permissionLevel < 3) {
+          return {
+            ...basic,
+            created_at: null,
+            start_date: null,
+            finish_date: null,
+          };
+        } else {
+          return {
+            ...basic,
+            description: taskJson.description,
+            requester_name: taskJson.requester_name,
+            requester_mail: taskJson.requester_mail,
+            requester_phone: taskJson.requester_phone,
+            created_at: taskJson.created_at?.toISOString() ?? null,
+            start_date: taskJson.start_date?.toISOString() ?? null,
+            finish_date: taskJson.finish_date?.toISOString() ?? null,
+          };
+        }
+      });
+
+      res.json(response);
+
+    } catch (error) {
+      console.error('Error in GET /departments/:id/tasks:', error);
+      res.status(500).json({ error: 'Failed to fetch tasks', detail: error });
+    }
+  }
+);
+
+const includeRelations = [
+  {
+    model: Users,
+    as: 'assignedUser',
+    attributes: ['id', 'name'],
+  },
+  {
+    model: Users,
+    as: 'updater',
+    attributes: ['id', 'name'],
+  },
+  {
+    model: Departments,
+    as: 'assignedDepartment',
+    attributes: ['id', 'dept_name'],
+  },
+];
 
 
 export default router;

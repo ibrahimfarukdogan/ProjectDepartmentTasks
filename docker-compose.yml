@@ -15,7 +15,7 @@ services:
       - CHOKIDAR_USEPOLLING=true
     depends_on:
       - db
-    command: npm run dev
+    command: ./wait-for-it.sh db:5432 -- npm run dev
 
   db:
     image: postgres:15

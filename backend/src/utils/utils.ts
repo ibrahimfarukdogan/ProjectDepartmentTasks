@@ -1,4 +1,5 @@
-import { Departments, Notifications, Roles, Users, Permissions } from "../models/index.js";
+import { Departments, Notifications, Roles, Users, Permissions, RolePermissions } from "../models/index.js";
+import { PermissionAttributes } from "../models/permissions.model.js";
 import { TaskAttributes } from "../models/tasks.model.js";
 
 export async function getOwnAndSubDepartments(parentId: number): Promise<number[]> {
@@ -138,4 +139,12 @@ export async function sendTaskAssignmentNotifications(task: TaskAttributes) {
   for (const notification of notifications) {
     await Notifications.create(notification);
   }
+}
+
+export async function getUserPermissions(user: Users): Promise<PermissionAttributes[]> {
+  const role = await user.getRole();
+  if (!role) return [];
+
+  const permissions = await role.getPermissions(); // ✅ direct call
+  return permissions;
 }

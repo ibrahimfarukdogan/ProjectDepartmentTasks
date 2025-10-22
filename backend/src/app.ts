@@ -9,18 +9,34 @@ import authRoutes from './routes/auth.routes.js';
 import sequelize from './db/db.js';
 import dotenv from 'dotenv';
 import './models/index.js';
-import cors from 'cors'
+import cors, { CorsOptions } from 'cors'
 import cron from 'node-cron';
 import { checkAndSendTaskNotifications, resendUnreadNotifications } from './scripts/taskNotificationCron.js';
 
 dotenv.config();
 const app = express();
 
-app.use(cors({
-  origin: 'http://localhost:8081', // or use process.env.FRONTEND_ORIGIN
-  credentials: true,
-}));
+const whitelist: string[] = [
+  'http://localhost:8081',
+  'https://ohjbxh0-anonymous-8081.exp.direct',
+  'http://10.0.2.2:8081',
+  process.env.FRONTEND_ORIGIN || '', // fallback to empty string if undefined
+];
 
+const corsOptions: CorsOptions = {
+  origin: (origin, callback) => {
+    const expoRegex = /^https:\/\/[a-z0-9-]+\.exp\.direct$/;
+
+    if (!origin || whitelist.includes(origin) || expoRegex.test(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS not allowed for this origin'));
+    }
+  },
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
 
 app.use(express.json());
 app.use('/login', authRoutes);
@@ -37,8 +53,7 @@ async function startServer() {
   try {
     await sequelize.authenticate();
     console.log('Database connected');
-
-//custom query sequelize query: sql injection önlemleri almalı
+    //custom query sequelize query: sql injection önlemleri almalı
     
     //await sequelize.sync({ alter: true });
     //console.log('All models synced, join tables created');

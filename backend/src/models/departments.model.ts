@@ -1,35 +1,38 @@
-import { BelongsToCreateAssociationMixin, BelongsToGetAssociationMixin, BelongsToManyAddAssociationMixin, BelongsToManyCountAssociationsMixin, BelongsToManyGetAssociationsMixin, BelongsToManyRemoveAssociationMixin, BelongsToSetAssociationMixin, DataTypes, HasManyAddAssociationMixin, HasManyCountAssociationsMixin, HasManyCreateAssociationMixin, HasManyGetAssociationsMixin, HasManyHasAssociationMixin, Model, Optional } from 'sequelize';
+import { BelongsToCreateAssociationMixin, BelongsToGetAssociationMixin, BelongsToManyAddAssociationMixin, BelongsToManyCountAssociationsMixin, BelongsToManyGetAssociationsMixin, BelongsToManyHasAssociationMixin, BelongsToManyRemoveAssociationMixin, BelongsToSetAssociationMixin, DataTypes, HasManyAddAssociationMixin, HasManyCountAssociationsMixin, HasManyCreateAssociationMixin, HasManyGetAssociationsMixin, HasManyHasAssociationMixin, Model, Optional } from 'sequelize';
 import sequelize from '../db/db.js';
-import {ActivityLogs, Users} from './index.js';
+import { ActivityLogs, Users } from './index.js';
 import { CreateWithUserOptions, DestroyWithUserOptions, UpdateWithUserOptions } from '../types/hookparameter.js';
 
 export interface DepartmentAttributes {
   id: number;
   dept_name: string;
   parent_id?: number | null;
+  manager_id: number;
 
   created_at?: Date;
   updated_at?: Date;
 }
 
-interface DepartmentCreationAttributes extends Optional<DepartmentAttributes, 'id' | 'parent_id' | 'created_at' | 'updated_at'> {}
+interface DepartmentCreationAttributes extends Optional<DepartmentAttributes, 'id' | 'parent_id' | 'created_at' | 'updated_at'> { }
 
 class Departments extends Model<DepartmentAttributes, DepartmentCreationAttributes>
   implements DepartmentAttributes {
   public id!: number;
   public dept_name!: string;
   public parent_id?: number | null;
+  public manager_id!: number;
 
   public created_at?: Date;
   public updated_at?: Date;
 
-    // ✅ Association mixins for TypeScript
+  // ✅ Association mixins for TypeScript
   public addMember!: BelongsToManyAddAssociationMixin<Users, number>;
   public removeMember!: BelongsToManyRemoveAssociationMixin<Users, number>;
   public getMembers!: BelongsToManyGetAssociationsMixin<Users>;
   public countMembers!: BelongsToManyCountAssociationsMixin;
+  public hasMember!: BelongsToManyHasAssociationMixin<Users, number>;
 
-  public members?: Users[]; 
+  public members?: Users[];
 
   // Parent association mixin (belongsTo)
   public getParent!: BelongsToGetAssociationMixin<Departments>;
@@ -63,12 +66,21 @@ Departments.init({
     type: DataTypes.INTEGER,
     allowNull: true,
     references: {
-      model: 'departments',
+      model: Departments,
       key: 'id',
     },
-    onDelete: 'SET NULL',
+    onDelete: 'SET NULL', //Prevent Deletion
   },
-  
+    manager_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: Users,
+      key: 'id',
+    },
+    onDelete: 'RESTRICT',
+  },
+
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,

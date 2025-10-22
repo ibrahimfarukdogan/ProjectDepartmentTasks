@@ -1,16 +1,22 @@
 export interface Department {
   id: number;
   dept_name: string;
+  manager_id: number;
   parent_id?: number | null;
   created_at?: string;
   updated_at?: string;
   parent?: {
+    id: number | null;
     dept_name: string;
   } | null;
 }
 
 export interface DepartmentWithType extends Department {
   isOwn: boolean;
+}
+export interface DepartmentGetResponse {
+  department: Department
+  subDepartmentCount?: number; 
 }
 
 export interface DepartmentTaskStatsResponse {

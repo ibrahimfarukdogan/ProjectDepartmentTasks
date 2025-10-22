@@ -34,6 +34,5 @@ export async function registerForPushNotificationsAsync() {
     });
   }
 
-  console.log('Expo Push Token:', expoPushToken);
   return expoPushToken;
 }

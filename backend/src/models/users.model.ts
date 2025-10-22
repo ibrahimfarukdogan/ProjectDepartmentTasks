@@ -1,4 +1,4 @@
-import { BelongsToManyGetAssociationsMixin, DataTypes, Model, Optional } from 'sequelize';
+import { BelongsToGetAssociationMixin, BelongsToManyGetAssociationsMixin, DataTypes, Model, Optional } from 'sequelize';
 import sequelize from '../db/db.js';
 import bcrypt from 'bcrypt';
 import { Departments, ActivityLogs, Roles } from './index.js';
@@ -40,6 +40,7 @@ class Users extends Model<UserAttributes, UserCreationAttributes> implements Use
 
   public push_token?: string;
 
+  public getRole!: BelongsToGetAssociationMixin<Roles>;
   public getMember_departments!: BelongsToManyGetAssociationsMixin<Departments>;
 }
 
@@ -62,7 +63,7 @@ Users.init({
   },
   role_id: {
     type: DataTypes.INTEGER,
-    allowNull: true,
+    allowNull: false,
   },
   adress: {
     type: DataTypes.STRING,

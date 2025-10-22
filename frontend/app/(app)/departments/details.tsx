@@ -25,6 +25,7 @@ import {
   DepartmentWithType,
   DetailedDepartmentStatsResponse,
 } from "@/types/departments";
+import { NoPermission } from "@/components/NoPermission";
 
 export default function DepartmentDetails() {
   const [departments, setDepartments] = useState<DepartmentWithType[]>([]);
@@ -116,11 +117,12 @@ export default function DepartmentDetails() {
                 <MaterialCommunityIcons
                   name="playlist-edit"
                   size={18}
-                  color="#000"
+                  color="#ddd"
                 />
               }
               label="Toplam Bitmemiş İşler"
               value={stats.taskStats.total}
+              color="#ddd" 
             />
             <StatRow
               icon={
@@ -132,6 +134,7 @@ export default function DepartmentDetails() {
               }
               label="Başlamasına Daha Var"
               value={stats.taskStats.not_started}
+              color="#ddd" 
             />
             <StatRow
               icon={
@@ -143,6 +146,7 @@ export default function DepartmentDetails() {
               }
               label="Açık İşler"
               value={stats.taskStats.open}
+              color="#ddd" 
             />
             <StatRow
               icon={
@@ -154,6 +158,7 @@ export default function DepartmentDetails() {
               }
               label="Devam Eden İşler"
               value={stats.taskStats.inprogress}
+              color="#ddd" 
             />
             <StatRow
               icon={
@@ -165,6 +170,7 @@ export default function DepartmentDetails() {
               }
               label="Tamamlanan İşler"
               value={stats.taskStats.done}
+              color="#ddd" 
             />
             <StatRow
               icon={
@@ -176,6 +182,7 @@ export default function DepartmentDetails() {
               }
               label="Onaylanan İşler"
               value={stats.taskStats.approved}
+              color="#ddd" 
             />
             <StatRow
               icon={
@@ -183,11 +190,13 @@ export default function DepartmentDetails() {
               }
               label="Süresi Geçen İşler"
               value={stats.taskStats.late}
+              color="#ddd" 
             />
             <StatRow
               icon={<MaterialIcons name="cancel" size={18} color="#FF0000" />}
               label="İptal Edilen İşler"
               value={stats.taskStats.cancelled}
+              color="#ddd" 
             />
             <StatRow
               icon={
@@ -195,11 +204,13 @@ export default function DepartmentDetails() {
               }
               label="Atanmamış İşler"
               value={stats.taskStats.created_by_me}
+              color="#ddd" 
             />
             <StatRow
-              icon={<FontAwesome5 name="users" size={16} color="#333" />}
+              icon={<FontAwesome5 name="users" size={16} color="#ddd" />}
               label="Toplam Kişi Sayısı"
               value={stats.userStats.totalUsers}
+              color="#ddd" 
             />
             <StatRow
               icon={
@@ -211,6 +222,7 @@ export default function DepartmentDetails() {
               }
               label="Meşgul Kişi Sayısı"
               value={stats.userStats.usersWithTasks}
+              color="#ddd" 
             />
             <StatRow
               icon={
@@ -222,11 +234,13 @@ export default function DepartmentDetails() {
               }
               label="Boşta Kişi Sayısı"
               value={stats.userStats.usersWithoutTasks}
+              color="#ddd" 
             />
             <StatRow
               icon={<Entypo name="flow-branch" size={18} color="#666" />}
               label="Alt Departman Sayısı"
               value={stats.userStats.numberOfChildDepartments}
+              color="#ddd" 
             />
             <StatRow
               icon={
@@ -234,21 +248,25 @@ export default function DepartmentDetails() {
               }
               label="Kaymakamlıktan Gelen"
               value={stats.taskStats.requester_kaymakamlik}
+              color="#ddd" 
             />
             <StatRow
               icon={<Ionicons name="people" size={18} color="#8A2BE2" />}
               label="Milletvekillerinden Gelen"
               value={stats.taskStats.requester_milletvekili}
+              color="#ddd" 
             />
             <StatRow
               icon={<FontAwesome5 name="home" size={16} color="#228B22" />}
               label="Muhtarlıktan Gelen"
               value={stats.taskStats.requester_muhtarlik}
+              color="#ddd" 
             />
             <StatRow
-              icon={<FontAwesome5 name="folder" size={16} color="#444" />}
+              icon={<FontAwesome5 name="folder" size={16} color="#ddd" />}
               label="Diğer İşler"
               value={stats.taskStats.requester_diger}
+              color="#ddd" 
             />
           </>
         ) : (
@@ -263,12 +281,8 @@ export default function DepartmentDetails() {
       <Stack.Screen options={{ title: "Detaylar" }} />
 
       {!hasPermission("Departments", 2) ? (
-        <View style={styles.container}>
-          <Text style={styles.error}>
-            Departmanları görüntüleme yetkiniz yoktur.
-          </Text>
-        </View>
-      ) : loading ? (
+         <NoPermission message="Departmanları görüntüleme yetkiniz yoktur."/>
+        ) : loading ? (
         <ActivityIndicator style={styles.loader} size="large" />
       ) : error ? (
         <View style={styles.container}>
@@ -303,40 +317,42 @@ const styles = StyleSheet.create({
   container: {
     padding: 16,
     paddingBottom: 100,
+    backgroundColor: "#121212", // Dark background
   },
   loader: {
     flex: 1,
     justifyContent: "center",
   },
   error: {
-    color: "red",
+    color: "#FF6B6B",
     textAlign: "center",
     marginTop: 20,
   },
   owndepartmentContainer: {
-    backgroundColor: "#e3f9fcff",
+    backgroundColor: "#1E2A38",
     borderRadius: 12,
     padding: 16,
-    borderColor: "#ddd",
+    borderColor: "#2C3E50",
     borderWidth: 1,
   },
   departmentContainer: {
-    backgroundColor: "#fff",
+    backgroundColor: "#1E1E1E",
     borderRadius: 12,
     padding: 16,
-    borderColor: "#ddd",
+    borderColor: "#2C2C2C",
     borderWidth: 1,
   },
   owndeptTitle: {
     borderRadius: 12,
     padding: 16,
-    color: "#005abbff",
+    color: "#4FC3F7",
     fontSize: 18,
     fontWeight: "bold",
     marginBottom: 5,
     textAlign: "center",
-    borderColor: "#ddd",
+    borderColor: "#2C3E50",
     borderWidth: 1,
+    backgroundColor: "#263545",
   },
   subdeptTitle: {
     borderRadius: 12,
@@ -345,16 +361,17 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 5,
     textAlign: "center",
-    color: "#333",
-    borderColor: "#ddd",
+    color: "#DDDDDD",
+    borderColor: "#2C2C2C",
     borderWidth: 1,
+    backgroundColor: "#1E1E1E",
   },
   statRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#2C2C2C",
     alignItems: "center",
   },
   topBar: {
@@ -362,19 +379,21 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#000000ff",
+    borderBottomColor: "#333",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#1A1A1A",
   },
   searchInput: {
     width: "80%",
-    backgroundColor: "#fff",
+    backgroundColor: "#2A2A2A",
     paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: "#444",
     borderRadius: 6,
     height: 36,
     fontSize: 14,
+    color: "#FFF",
   },
   iconLabel: {
     flexDirection: "row",
@@ -383,10 +402,11 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 14,
     marginLeft: 8,
-    color: "#444",
+    color: "#CCCCCC",
   },
   statValue: {
     fontSize: 14,
     fontWeight: "bold",
+    color: "#FFFFFF",
   },
 });

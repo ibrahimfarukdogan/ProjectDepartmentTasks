@@ -10,6 +10,10 @@ COPY package*.json ./
 # Install app dependencies
 RUN npm install
 
+# Copy the wait-for-it script
+COPY wait-for-it.sh ./wait-for-it.sh
+RUN chmod +x ./wait-for-it.sh
+
 # Expose the port the app runs on
 EXPOSE 3000
 

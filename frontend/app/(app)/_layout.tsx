@@ -11,11 +11,19 @@ export default function AppLayout() {
         screenOptions={{
           headerTitleAlign: "center",
           headerShown: true,
-          headerShadowVisible: false, 
+          headerShadowVisible: false,
           headerTitleStyle: {
             fontWeight: "bold",
             fontSize: 22,
+            color: "#ddd",
           },
+          contentStyle: {
+            backgroundColor: "#000", // background behind your screens
+          },
+          headerStyle: {
+            backgroundColor: "#000", // ← dark background
+          },
+          headerTintColor: "#fff",      
           headerLeft: () => {
             const navigation = useNavigation();
             if (!navigation.canGoBack()) return null;
@@ -48,14 +56,14 @@ const styles = StyleSheet.create({
     width: 36,
     paddingEnd: 2,
     borderRadius: 30,
-    backgroundColor: "#f2f3f5",
-    borderColor: "#e0e0e0",
+    backgroundColor: "#1f1f1f", // darker background
+    borderColor: "#333", // subtle dark border
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   iconPressed: {
-    backgroundColor: "#ccccccff",
-    transform: [{ scale: 0.8 }],
+    backgroundColor: "#333333",
+    transform: [{ scale: 0.9 }],
   },
 });

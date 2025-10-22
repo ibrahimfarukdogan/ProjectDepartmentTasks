@@ -1,4 +1,5 @@
 import { Permission } from "./permission";
+import { Role } from "./roles";
 
 export interface User {
   id: number;
@@ -12,6 +13,21 @@ export interface User {
   created_at: string;
   updated_at: string;
 }
+
+export interface UserList {
+  id: number;
+  name?: string;
+  role: Role
+}
+
+export type UserFormData = {
+  name?: string;
+  mail?: string;
+  role_id?: number | null;
+  adress?: string;
+  phone?: string;
+  password?: string; // only used on creation
+};
 
 export interface UserTaskStatsResponse {
   userId: number;

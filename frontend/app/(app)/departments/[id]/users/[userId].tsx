@@ -3,19 +3,19 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../../../../context/authcontext';
 import { getUserById } from '../../../../../services/api';
-import { UserDetailFull } from '@/types/user';
+import { User } from '@/types/user';
 
 export default function UserDetail() {
   const { id } = useLocalSearchParams();
   const { token } = useAuth();
-  const [user, setUser] = useState<UserDetailFull>();
+  const [user, setUser] = useState<User>();
 
 useEffect(() => {
   const fetchUser = async () => {
     try {
       //const user = await getUserById(id as string);
       //setUser(user);
-      const usert: UserDetailFull= {id:1, name:"s", mail:"s", phone:"55", adress: "ss", role: "kaptan"}
+      const usert: User= {id:1, name:"s", mail:"s", phone:"55", adress: "ss", role: "kaptan", role_id: 1, created_at: "", updated_at: "", permissions: []}
       setUser(usert);
     } catch (err) {
       console.error(err);
