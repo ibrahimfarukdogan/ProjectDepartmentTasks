@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -32,8 +32,9 @@ import { createDepartment } from "../../services/api"; // or wherever you define
 import { useRef } from "react";
 import { CreateDepartmentForm } from "../../components/CreateDepartmentForm";
 import { NoPermission } from "@/components/NoPermission";
-import { showToast } from "@/utils/utils";
+import { normalize, showToast } from "@/utils/utils";
 import { UserList } from "@/types/user";
+import { DepartmentItem } from "@/components/DepartmentItem";
 
 export default function Home() {
   const [departments, setDepartments] = useState<DepartmentWithType[]>([]);
@@ -59,6 +60,7 @@ export default function Home() {
 
   const [visibleUsers, setVisibleUsers] = useState<UserList[]>([]);
   const [selectedManagerId, setSelectedManagerId] = useState<number>(0);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
 
   const fetchDepartments = async () => {
     if (!hasPermission("Departments", 1)) {
@@ -82,20 +84,25 @@ export default function Home() {
 
       if (hasPermission("Tasks", 1)) {
         // Init loading map
-        const loadingMap: Record<number, "loading"> = {};
-        combined.forEach((dept) => {
-          loadingMap[dept.id] = "loading";
-        });
-        setTaskStatsMap(loadingMap);
+        setTaskStatsMap(
+          Object.fromEntries(combined.map((d) => [d.id, "loading"]))
+        );
 
         // Fetch task stats
-        for (const dept of combined) {
-          fetchTaskStats(dept.id).then((stats) => {
-            setTaskStatsMap((prev) => ({
-              ...prev,
-              [dept.id]: stats,
-            }));
-          });
+        try {
+          const results = await Promise.all(
+            combined.map(async (dept) => {
+              const stats = await fetchTaskStats(dept.id);
+              return [dept.id, stats]; // pair for easy conversion later
+            })
+          );
+
+          // Convert array of [id, stats] into an object map
+          const statsMap = Object.fromEntries(results);
+
+          setTaskStatsMap(statsMap);
+        } catch (err) {
+          console.error("Error fetching task stats:", err);
         }
       } else {
         // If no Tasks permission, set stats to null
@@ -189,116 +196,23 @@ export default function Home() {
     router.push(`/departments/${id}/tasks`);
   };
 
-  const filteredDepartments = departments.filter((dept) =>
-    dept.dept_name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredDepartments = useMemo(() => {
+    if (!departments) return [];
+    const query = normalize(searchQuery);
+    return departments.filter((dept) =>
+      normalize(dept.dept_name).includes(query)
+    );
+  }, [departments, searchQuery]);
 
   const renderDepartment = ({ item }: { item: DepartmentWithType }) => {
     const stats = taskStatsMap[item.id];
-
     return (
-      <View style={styles.departmentContainer}>
-        {/* Show department button only if user has Departments permission */}
-        {hasPermission("Departments", 1) ? (
-          <TouchableOpacity
-            onPress={() => handleDeptPress(item.id)}
-            style={[
-              styles.deptButton,
-              item.isOwn ? styles.ownDeptButton : styles.subDeptButton,
-            ]}
-          >
-            <View style={{ alignItems: "center" }}>
-              <Text
-                style={[
-                  styles.buttonTitle,
-                  item.isOwn ? styles.ownDeptText : styles.subDeptText,
-                ]}
-              >
-                {item.isOwn ? "DEPARTMANINIZ" : "DEPARTMAN"}
-              </Text>
-              <Text
-                style={[
-                  styles.deptButtonText,
-                  item.isOwn ? styles.ownDeptText : styles.subDeptText,
-                ]}
-              >
-                {item.dept_name}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        ) : (
-          <NoPermission message="Departmanları görüntüleme yetkiniz yoktur." />
-        )}
-
-        {/* Show task stats only if user has Tasks permission */}
-        {hasPermission("Tasks", 1) ? (
-          <TouchableOpacity
-            onPress={() => handleTaskStatsPress(item.id)}
-            style={styles.statsButton}
-          >
-            <View style={{ alignItems: "center" }}>
-              <Text style={styles.buttonTitle}>GÖREVLER</Text>
-              {stats === "loading" ? (
-                <Text style={styles.statsText}>Loading task stats...</Text>
-              ) : (
-                <Text style={styles.statsText}>
-                  <MaterialIcons
-                    name="crisis-alert"
-                    size={15}
-                    color={"#FF5B5B"}
-                  />
-                  :{stats?.stats.late || 0},{" "}
-                  <MaterialIcons
-                    name="calendar-month"
-                    size={15}
-                    color={"#007bff"}
-                  />
-                  :{stats?.stats.not_started || 0},{" "}
-                  <MaterialCommunityIcons
-                    name="circle-outline"
-                    size={15}
-                    color={"#00A8FF"}
-                  />
-                  :{stats?.stats.open || 0},{" "}
-                  <MaterialCommunityIcons
-                    name="circle-slice-5"
-                    size={15}
-                    color={"#FFA500"}
-                  />
-                  :{stats?.stats.inprogress || 0},{" "}
-                  <Ionicons
-                    name="checkmark-circle-sharp"
-                    size={15}
-                    color={"#A0DF85"}
-                  />
-                  :{stats?.stats.done || 0},{" "}
-                  <Ionicons
-                    name="checkmark-done-circle"
-                    size={15}
-                    color={"#36B700"}
-                  />
-                  :{stats?.stats.approved || 0},{" "}
-                  <MaterialIcons name="cancel" size={15} color={"#FF0000"} />:
-                  {stats?.stats.cancelled || 0}
-                  {stats?.stats.not_assigned ? (
-                    <>
-                      ,{" "}
-                      <FontAwesome
-                        name="question-circle"
-                        size={15}
-                        color={"#FF00F7"}
-                      />
-                      :{stats?.stats.not_assigned}
-                    </>
-                  ) : null}
-                </Text>
-              )}
-            </View>
-          </TouchableOpacity>
-        ) : (
-          <NoPermission message="Görevleri görünteleme yetkiniz yoktur." />
-        )}
-      </View>
+      <DepartmentItem
+        department={item}
+        taskStats={stats}
+        onPressDept={handleDeptPress}
+        onPressStats={handleTaskStatsPress}
+      />
     );
   };
 
@@ -404,6 +318,7 @@ export default function Home() {
                       newDeptName={newDeptName}
                       onChangeDeptName={setNewDeptName}
                       onSubmit={handleCreateDepartment}
+                      onCancel={() => setModalVisible(false)}
                       isLoading={isCreating}
                       visibleUsers={visibleUsers}
                       selectedManagerId={selectedManagerId}
@@ -413,15 +328,6 @@ export default function Home() {
                         visibleUsers.length > 1
                       }
                     />
-
-                    <TouchableOpacity
-                      onPress={() => setModalVisible(false)}
-                      style={styles.modalCancelButton}
-                    >
-                      <Text style={{ color: "#007BFF", fontWeight: "bold" }}>
-                        İptal
-                      </Text>
-                    </TouchableOpacity>
                   </View>
                 </View>
               </Modal>
@@ -431,6 +337,10 @@ export default function Home() {
                 index={-1}
                 snapPoints={snapPoints}
                 enablePanDownToClose
+                onChange={(index) => setIsSheetOpen(index >= 0)} 
+                backgroundStyle={{
+                  backgroundColor: "#242424",
+                }}
               >
                 <BottomSheetScrollView>
                   <CreateDepartmentForm
@@ -440,6 +350,7 @@ export default function Home() {
                     newDeptName={newDeptName}
                     onChangeDeptName={setNewDeptName}
                     onSubmit={handleCreateDepartment}
+                    onCancel={closeSheet}   
                     isLoading={isCreating}
                     visibleUsers={visibleUsers}
                     selectedManagerId={selectedManagerId}
@@ -452,7 +363,7 @@ export default function Home() {
               </BottomSheet>
             )}
 
-            {hasPermission("Departments", 3) && (
+            {hasPermission("Departments", 3)  && !modalVisible && !isSheetOpen && (
               <TouchableOpacity
                 style={styles.fab}
                 onPress={isWeb ? () => setModalVisible(true) : openSheet}
@@ -493,54 +404,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 20,
   },
-  departmentContainer: {
-    marginBottom: 16,
-    alignItems: "center",
-  },
-  deptButton: {
-    paddingVertical: 5,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    marginBottom: 8,
-    width: "100%",
-    alignItems: "center",
-  },
-  ownDeptButton: {
-    backgroundColor: "#1E2A38",
-    borderWidth: 1,
-    borderColor: "#444",
-  },
-  subDeptButton: {
-    backgroundColor: "#1E1E1E",
-    borderWidth: 1,
-    borderColor: "#444",
-  },
-  deptButtonText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#ffffff",
-  },
-  ownDeptText: {
-    color: "#4FC3F7",
-  },
-  subDeptText: {
-    color: "#dddddd",
-  },
-  statsButton: {
-    backgroundColor: "#2D4D46",
-    borderWidth: 1,
-    borderColor: "#555",
-    borderRadius: 12,
-    paddingVertical: 5,
-    paddingHorizontal: 16,
-    width: "100%",
-    alignItems: "center",
-  },
-  statsText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "500",
-  },
   fab: {
     position: "absolute",
     bottom: 20,
@@ -557,7 +420,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#333",
+    borderBottomColor: "#666",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

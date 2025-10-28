@@ -89,18 +89,19 @@ export async function validateUserBelongsToDepartment(userId: number, deptId: nu
 export async function sendTaskAssignmentNotifications(task: TaskAttributes) {
   const notifications = [];
   const department = await Departments.findByPk(task.assigned_dept_id, {
+  include: [{
+    model: Users,
+    as: 'members',
     include: [{
-      model: Users,
-      as: 'members',
+      model: Roles,
+      as: 'role', // ✅ must match the alias in your association
       include: [{
-        model: Roles,
-        include: [{
-          model: Permissions,
-          where: { category: 'Tasks' }, // Only "Tasks" permission
-        }],
+        model: Permissions, as:"permissions",
+        where: { category: 'Tasks' },
       }],
     }],
-  });
+  }],
+});
   const departmentName = department?.dept_name ?? 'your';
 
   if (!department) return;
@@ -147,4 +148,7 @@ export async function getUserPermissions(user: Users): Promise<PermissionAttribu
 
   const permissions = await role.getPermissions(); // ✅ direct call
   return permissions;
+}
+export function hasPermission(userPermissions: PermissionAttributes[], category: string, level: number) {
+  return userPermissions.some(p => p.category === category && p.level >= level);
 }

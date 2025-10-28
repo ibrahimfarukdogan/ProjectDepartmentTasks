@@ -4,6 +4,7 @@ import { Department, DepartmentGetResponse, DepartmentTaskStatsResponse, Detaile
 import { LoginResponse, User, UserFormData, UserList, UserTaskStatsResponse } from '@/types/user';
 import { Platform } from 'react-native';
 import { RoleWithPermissions } from '@/types/roles';
+import { DepartmentTask, Task } from '@/types/tasks';
 
 
 const extra = Constants.expoConfig?.extra || {};
@@ -35,11 +36,12 @@ API.interceptors.request.use((config) => {
 
 export const login = async (mail: string, password: string): Promise<LoginResponse> => {
   try {
+    console.log('Login start', API_BASE_URL);
     const response = await API.post('/login', { mail, password });
     console.log('Login success, token stored securely.');
     return response.data;
-  } catch (err: any) {
-    console.error('Login failed', err.response?.data || err.message);
+  } catch (error: any) {
+    console.error('Login failed', error.response?.data || error.message);
     throw new Error('Yanlış mail veya şifre'); // Throw error to be caught by the caller
   }
 };
@@ -240,10 +242,20 @@ export const deleteDepartment = async (departmentId: number) => {
 export const getRoles = async (): Promise<RoleWithPermissions[]> => {
   try {
     const response = await API.get<RoleWithPermissions[]>(`/api/roles`);
-    console.log("roles: ", response);
     return response.data;
   } catch (error: any) {
     console.error('Failed to get roles:', error.response?.data || error.message);
+    throw error;
+  }
+};
+
+// ----- ROLES -----
+export const getTasks = async (departmentId: number): Promise<DepartmentTask[]> => {
+  try {
+    const response = await API.get(`/api/departments/${departmentId}/tasks`);
+    return response.data;
+  } catch (error: any) {
+    console.error('Failed to get tasks:', error.response?.data || error.message);
     throw error;
   }
 };

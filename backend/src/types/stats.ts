@@ -19,6 +19,7 @@ export interface DetailedDepartmentTaskStats {
   cancelled: number;
   late: number;
   not_started: number;
+  not_assigned?: number | null | undefined;
   requester_milletvekili: number;
   requester_kaymakamlik: number;
   requester_muhtarlik: number;
@@ -53,6 +54,7 @@ export const emptyTaskStats: DetailedDepartmentTaskStats = {
   requester_kaymakamlik: 0,
   requester_muhtarlik: 0,
   requester_diger: 0,
+  not_assigned: 0,
   created_by_me: 0,
   authorized_by_me: 0,
   assigned_to_me: 0,

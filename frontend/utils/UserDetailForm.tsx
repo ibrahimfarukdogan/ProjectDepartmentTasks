@@ -111,7 +111,7 @@ export const UserDetailForm = ({
                       onValueChange={(val) =>
                         handleChange("role_id", Number(val))
                       }
-                      style={styles.pickerStyle}
+                      style={styles.pickerstyle}
                       enabled={true}
                     >
                       {roles.map((role) => {
@@ -137,7 +137,7 @@ export const UserDetailForm = ({
                     <Picker
                       selectedValue={form.role_id ?? null}
                       enabled={false}
-                      style={styles.pickerStyle}
+                      style={styles.pickerstyle}
                     >
                       <Picker.Item label="Roller yüklenemedi" value={null} />
                     </Picker>
@@ -250,8 +250,10 @@ const styles = StyleSheet.create({
     borderColor: "#444",
     overflow: "hidden",
   },
-  pickerStyle: {
-    color: "#000",
+  pickerstyle: {
+    color: "#fff",
+    backgroundColor: "#2b2b2b",
+    borderRadius: 6,
   },
   value: {
     color: "#fff",

@@ -47,6 +47,7 @@ export interface DetailedDepartmentTaskStats {
   requester_kaymakamlik: number;
   requester_muhtarlik: number;
   requester_diger: number;
+  not_assigned: number;
   created_by_me: number;
   authorized_by_me: number;
   assigned_to_me: number;

@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import authenticateJWT from '../middlewares/authjwt.middleware.js';
 import requirePermission from '../middlewares/requirePermission.middleware.js';
 import { Users, Departments, Roles, Tasks, DepartmentMembers, RolePermissions } from '../models/index.js';
-import { getOwnAndSubDepartments, getUserPermissions } from '../utils/utils.js';
+import { CheckOwnAndSubDeparmentAllowance, getOwnAndSubDepartments, getUserPermissions, hasPermission } from '../utils/utils.js';
 import { CreateWithUserOptions, DestroyWithUserOptions, UpdateWithUserOptions } from '../types/hookparameter.js';
 import { DepartmentAttributes } from '../models/departments.model.js';
 import { DepartmentMemberAttributes } from '../models/departmentMembers.model.js';
@@ -104,17 +104,9 @@ router.get('/:deptId',
       let isAuthorized = false;
 
       if (permissionLevel === 1) {
-        // Level 1: Only own departments
         isAuthorized = userDepartments.some(d => d.id === deptId);
       } else {
-        // Level 2+: Own or sub-departments
-        for (const dept of userDepartments) {
-          const allowedSubDeptIds = await getOwnAndSubDepartments(dept.id);
-          if (allowedSubDeptIds.includes(deptId)) {
-            isAuthorized = true;
-            break;
-          }
-        }
+        isAuthorized = await CheckOwnAndSubDeparmentAllowance(deptId, userDepartments);
       }
 
       if (!isAuthorized) {
@@ -193,20 +185,16 @@ router.get('/:id/users',
       }
       const permissionLevel = req.permissionLevel; // From middleware
 
-      let accessibleIds: number[] = [];
       let isAuthorized = false;
       const userDepartments = await currentUser.getMember_departments();
 
-      isAuthorized = userDepartments.some(d => d.id === deptId);
-      if (!isAuthorized && permissionLevel >= 2) {
-        for (const dept of userDepartments) {
-          const allowedSubDeptIds = await getOwnAndSubDepartments(dept.id);
+      const userPermissions = await getUserPermissions(currentUser);
+      const hasDeptLevel2 = hasPermission(userPermissions, 'Departments', 2);
 
-          if (allowedSubDeptIds.includes(deptId)) {
-            isAuthorized = true;
-            break;
-          }
-        }
+      if (hasDeptLevel2) {
+        isAuthorized = await CheckOwnAndSubDeparmentAllowance(deptId, userDepartments);
+      } else {
+        isAuthorized = userDepartments.some(d => d.id === deptId);
       }
 
       if (!isAuthorized) {
@@ -301,19 +289,18 @@ router.post('/',
       // ✅ 2. Check permission levels
       const userPermissions = await getUserPermissions(managerUser);
 
-      const hasUserLevel3 = userPermissions.some(p => p.category === 'Users' && p.level >= 3);
+      const hasUserLevel3 = hasPermission(userPermissions, 'Users', 3);
       const managerUserRole = await managerUser.getRole();
 
       if (parent_id === null || parent_id === undefined) {
-        if (parent_id === null) {
-          res.status(400).json({ error: 'parent_id can not be null' });
-          return;
-        }
         if (managerUserRole.id != 2) {
           res.status(403).json({ error: 'For top-level department, manager need to be the chairman role' });
           return;
         }
-      } else {
+        res.status(400).json({ error: 'parent_id can not be null' });
+        return;
+      }
+      else {
         if (!hasUserLevel3) {
           res.status(403).json({ error: 'For a sub-department, manager need to have Users:3 or higher permission' });
           return;
@@ -326,20 +313,12 @@ router.post('/',
 
         // ✅ 3. Check authorization to assign that parent_id
         const userDepartments = await currentUser.getMember_departments();
-        let isAuthorized = false;
-
-        for (const dept of userDepartments) {
-          const allowedSubDeptIds = await getOwnAndSubDepartments(dept.id);
-          if (allowedSubDeptIds.includes(parent_id)) {
-            isAuthorized = true;
-            break;
-          }
-        }
-
+        const isAuthorized = await CheckOwnAndSubDeparmentAllowance(parent_id, userDepartments);
         if (!isAuthorized) {
           res.status(403).json({ error: 'Not authorized to assign this parent_id' });
           return;
         }
+
       }
 
       const option: CreateWithUserOptions<DepartmentAttributes> = { userId: req.user!.id };
@@ -381,16 +360,7 @@ router.put('/:id',
 
       // ✅ Ensure user has access to edit this department
       const userDepartments = await currentUser.getMember_departments();
-      let isAuthorized = false;
-
-      for (const dept of userDepartments) {
-        const allowedSubDeptIds = await getOwnAndSubDepartments(dept.id);
-        if (allowedSubDeptIds.includes(deptId)) {
-          isAuthorized = true;
-          break;
-        }
-      }
-
+      const isAuthorized = await CheckOwnAndSubDeparmentAllowance(deptId, userDepartments);
       if (!isAuthorized) {
         res.status(403).json({ error: 'Not authorized to update this department' });
         return;
@@ -411,7 +381,7 @@ router.put('/:id',
         }
         const managerUserRole = await managerUser.getRole();
         const userPermissions = await getUserPermissions(managerUser);
-        const hasUserLevel3 = userPermissions.some(p => p.category === 'Users' && p.level >= 3);
+        const hasUserLevel3 = hasPermission(userPermissions, 'Users', 3);
         if (dept.parent_id === null && managerUserRole.id != 2) {
           res.status(403).json({ error: 'For top-level department, manager need to be the chairman role' });
           return;
@@ -477,20 +447,12 @@ router.delete('/:id',
       }
 
       const userDepartments = await currentUser.getMember_departments();
-      let isAuthorized = false;
-
-      for (const dept of userDepartments) {
-        const allowedSubDeptIds = await getOwnAndSubDepartments(dept.id);
-        if (allowedSubDeptIds.includes(deptId)) {
-          isAuthorized = true;
-          break;
-        }
-      }
-
+      const isAuthorized = await CheckOwnAndSubDeparmentAllowance(deptId, userDepartments);
       if (!isAuthorized) {
         res.status(403).json({ error: 'Not authorized to delete this department' });
         return;
       }
+
 
       const dept = await Departments.findByPk(deptId);
       if (!dept) {
@@ -517,7 +479,10 @@ router.delete('/:id',
   }
 );
 
-// Add user to department (via belongsToMany)
+/**
+ * POST /api/departments/:id/users/add
+ * Add user to department (via belongsToMany) (if allowed)
+ */
 router.post('/:id/users/add',
   authenticateJWT,
   requirePermission('Departments', 3),
@@ -526,9 +491,21 @@ router.post('/:id/users/add',
     const { userId } = req.body;
 
     try {
+      const currentUser = await Users.findByPk(req.user!.id);
+      if (!currentUser) {
+        res.status(401).json({ error: 'Invalid user' });
+        return;
+      }
       const department = await Departments.findByPk(deptId);
       if (!department) {
         res.status(404).json({ error: 'Department not found' });
+        return;
+      }
+
+      const userDepartments = await currentUser.getMember_departments();
+      const isAuthorized = await CheckOwnAndSubDeparmentAllowance(department.id, userDepartments);
+      if (!isAuthorized) {
+        res.status(403).json({ error: 'You are not allowed to add users to this department.' });
         return;
       }
 
@@ -556,7 +533,10 @@ router.post('/:id/users/add',
   }
 );
 
-// Remove user from a department (via belongsToMany)
+/**
+ * DELETE /api/departments/:id/users/:userId/remove
+ * Remove user from a department (via belongsToMany) (if allowed)
+ */
 router.delete('/:id/users/:userId/remove',
   authenticateJWT,
   requirePermission('Departments', 3),
@@ -565,6 +545,11 @@ router.delete('/:id/users/:userId/remove',
     const userId = parseInt(req.params.userId);
 
     try {
+      const currentUser = await Users.findByPk(req.user!.id);
+      if (!currentUser) {
+        res.status(401).json({ error: 'Invalid user' });
+        return;
+      }
       const department = await Departments.findByPk(deptId, {
         include: [{
           association: 'members',
@@ -572,10 +557,23 @@ router.delete('/:id/users/:userId/remove',
         }]
       });
 
+      if (!department) {
+        res.status(404).json({ error: 'Department not found' });
+        return;
+      }
+
+
+      const userDepartments = await currentUser.getMember_departments();
+      const isAuthorized = await CheckOwnAndSubDeparmentAllowance(department.id, userDepartments);
+      if (!isAuthorized) {
+        res.status(403).json({ error: 'You are not allowed to remove user from this department.' });
+        return;
+      }
+
       const user = await Users.findByPk(userId);
 
-      if (!department || !user) {
-        res.status(404).json({ error: 'Department or User not found' });
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
         return;
       }
 
@@ -612,7 +610,10 @@ router.delete('/:id/users/:userId/remove',
   }
 );
 
-// View Mini Task Statistics
+/**
+ * GET /api/departments/:id/task-stats
+ * View Mini Task Statistics (if allowed)
+ */
 router.get('/:id/task-stats',
   authenticateJWT,
   requirePermission('Tasks', 1), // Minimum level required
@@ -625,6 +626,18 @@ router.get('/:id/task-stats',
     }
 
     try {
+      const currentUser = await Users.findByPk(req.user!.id);
+      if (!currentUser) {
+        res.status(401).json({ error: 'Invalid user' });
+        return;
+      }
+      if (req.permissionLevel === undefined) {
+        res.status(500).json({ error: 'Permission level not set. Middleware may be missing.' });
+        return;
+      }
+
+      const permissionLevel = req.permissionLevel;
+
       const department = await Departments.findByPk(departmentId);
 
       if (!department) {
@@ -632,14 +645,24 @@ router.get('/:id/task-stats',
         return;
       }
 
-      const userId = req.user!.id;
+      const userDepartments = await currentUser.getMember_departments();
 
-      if (req.permissionLevel === undefined) {
-        res.status(500).json({ error: 'Permission level not set. Middleware may be missing.' });
+      let isAuthorized = false;
+
+      const userPermissions = await getUserPermissions(currentUser);
+      const hasDeptLevel2 = hasPermission(userPermissions, 'Departments', 2);
+
+      if (hasDeptLevel2) {
+        isAuthorized = await CheckOwnAndSubDeparmentAllowance(department.id, userDepartments);
+      } else {
+        isAuthorized = userDepartments.some(d => d.id === department.id);
+      }
+      if (!isAuthorized) {
+        res.status(403).json({ error: 'You are not allowed to get task statistics from this department.' });
         return;
       }
 
-      const permissionLevel = req.permissionLevel;
+      const userId = currentUser.id;
 
       // Build WHERE condition based on permission level
       const whereClause: any = {
@@ -718,7 +741,10 @@ router.get('/:id/task-stats',
   }
 );
 
-// View Full Department Statistics
+/**
+ * GET /api/departments/:id/detailed-stats
+ * View Full Department Statistics (if allowed)
+ */
 router.get('/:id/detailed-stats',
   authenticateJWT,
   requirePermission('Departments', 3),
@@ -730,13 +756,34 @@ router.get('/:id/detailed-stats',
     }
 
     try {
+      const currentUser = await Users.findByPk(req.user!.id);
+      if (!currentUser) {
+        res.status(401).json({ error: 'Invalid user' });
+        return;
+      }
       const department = await Departments.findByPk(departmentId);
       if (!department) {
         res.status(404).json({ error: 'Department not found' });
         return;
       }
 
-      const userId = req.user!.id;
+      const userId = currentUser.id;
+
+      let isAuthorized = false;
+
+      const userDepartments = await currentUser.getMember_departments();
+      const userPermissions = await getUserPermissions(currentUser);
+      const hasDeptLevel2 = hasPermission(userPermissions, 'Departments', 2);
+
+      if (hasDeptLevel2) {
+        isAuthorized = await CheckOwnAndSubDeparmentAllowance(department.id, userDepartments);
+      } else {
+        isAuthorized = userDepartments.some(d => d.id === department.id);
+      }
+      if (!isAuthorized) {
+        res.status(403).json({ error: 'You are not allowed to get department statistics from this department.' });
+        return;
+      }
 
       // ---------------------- TASK STATS ----------------------
       const taskStatsRaw = await Tasks.findOne({
@@ -747,6 +794,7 @@ router.get('/:id/detailed-stats',
           [Sequelize.fn('COUNT', Sequelize.literal(`CASE WHEN status = 'done' THEN 1 END`)), 'done'],
           [Sequelize.fn('COUNT', Sequelize.literal(`CASE WHEN status = 'approved' THEN 1 END`)), 'approved'],
           [Sequelize.fn('COUNT', Sequelize.literal(`CASE WHEN status = 'cancelled' THEN 1 END`)), 'cancelled'],
+          [Sequelize.fn('COUNT', Sequelize.literal(`CASE WHEN assigned_user_id IS NULL THEN 1 END`)), 'not_assigned'],
           [Sequelize.fn('COUNT', Sequelize.literal(`CASE WHEN finish_date < CURRENT_DATE THEN 1 END`)), 'late'],
           [Sequelize.fn('COUNT', Sequelize.literal(`CASE WHEN start_date > CURRENT_DATE THEN 1 END`)), 'not_started'],
           [Sequelize.fn('COUNT', Sequelize.literal(`CASE WHEN requester_rank = 'milletvekili' THEN 1 END`)), 'requester_milletvekili'],
@@ -789,6 +837,7 @@ router.get('/:id/detailed-stats',
         cancelled: Number(tasksRawAssigned?.cancelled ?? 0),
         late: Number(tasksRawAssigned?.late ?? 0),
         not_started: Number(tasksRawAssigned?.not_started ?? 0),
+        not_assigned: Number(tasksRawAssigned?.not_assigned ?? 0),
         requester_milletvekili: Number(tasksRawAssigned?.requester_milletvekili ?? 0),
         requester_kaymakamlik: Number(tasksRawAssigned?.requester_kaymakamlik ?? 0),
         requester_muhtarlik: Number(tasksRawAssigned?.requester_muhtarlik ?? 0),
@@ -877,6 +926,21 @@ router.get('/:id/tasks',
         return;
       }
 
+      let isAuthorized = false;
+
+      const userPermissions = await getUserPermissions(currentUser);
+      const hasDeptLevel2 = hasPermission(userPermissions, 'Departments', 2);
+
+      if (hasDeptLevel2) {
+        isAuthorized = await CheckOwnAndSubDeparmentAllowance(department.id, userDepartments);
+      } else {
+        isAuthorized = userDepartments.some(d => d.id === department.id);
+      }
+      if (!isAuthorized) {
+        res.status(403).json({ error: 'You are not allowed to get the tasks from this department.' });
+        return;
+      }
+
       let tasks: Tasks[] = [];
 
       if (permissionLevel >= 3) {
@@ -919,27 +983,37 @@ router.get('/:id/tasks',
 
         tasks = Array.from(taskMap.values());
       }
+      const now = new Date();
 
       // Shape response according to permission
       const response = tasks.map(task => {
         const taskJson = task.toJSON();
+        const secondaryStatus = {
+          late: taskJson.finish_date ? new Date(taskJson.finish_date) < now && !['done', 'approved'].includes(taskJson.status) : false,
+          not_started: taskJson.start_date ? new Date(taskJson.start_date) > now : false,
+          not_assigned: !taskJson.assigned_user_id,
+          created_by_me: taskJson.creator_id === req.user!.id,
+          authorized_by_me: taskJson.authorized_user_id === req.user!.id,
+          assigned_to_me: taskJson.assigned_user_id === req.user!.id,
+          requester_milletvekili: taskJson.requester_rank ? taskJson.requester_rank === "milletvekili" : false,
+          requester_kaymakamlik: taskJson.requester_rank ? taskJson.requester_rank === "kaymakamlik" : false,
+          requester_muhtarlik: taskJson.requester_rank ? taskJson.requester_rank === "muhtarlik" : false,
+          requester_diger: taskJson.requester_rank ? taskJson.requester_rank === "diger" : false,
+        };
         const basic = {
           id: taskJson.id,
           title: taskJson.title,
           status: taskJson.status,
+          secondaryStatus, // <-- ADD THIS
           requester_rank: taskJson.requester_rank,
           department: taskJson.assignedDepartment?.dept_name ?? null,
+          creator: taskJson.creator?.name ?? null,
           assigned_user: taskJson.assignedUser?.name ?? null,
-          updater: taskJson.updater?.name ?? null,
+          authorizator: taskJson.authorizator?.name ?? null,
         };
 
         if (permissionLevel < 3) {
-          return {
-            ...basic,
-            created_at: null,
-            start_date: null,
-            finish_date: null,
-          };
+          return { ...basic, created_at: null, start_date: null, finish_date: null };
         } else {
           return {
             ...basic,
@@ -971,7 +1045,12 @@ const includeRelations = [
   },
   {
     model: Users,
-    as: 'updater',
+    as: 'authorizator',
+    attributes: ['id', 'name'],
+  },
+  {
+    model: Users,
+    as: 'creator',
     attributes: ['id', 'name'],
   },
   {

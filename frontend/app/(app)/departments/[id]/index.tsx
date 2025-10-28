@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -43,11 +43,16 @@ import {
   MaterialIcons,
 } from "@expo/vector-icons";
 import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { UserDetailForm } from "@/components/UserFormModal";
+import { UserDetailForm } from "@/utils/UserDetailForm";
 import { NoPermission } from "@/components/NoPermission";
 import { Picker } from "@react-native-picker/picker";
 import Toast from "react-native-toast-message";
-import { showToast } from "@/utils/utils";
+import { normalize, showToast } from "@/utils/utils";
+import { UserDetailModal } from "@/components/UserDetailModal";
+import { BottomSheetMethods } from "@gorhom/bottom-sheet/lib/typescript/types";
+import { UserStatsView } from "@/components/DepartmentUserItem";
+import { DepartmentEditModal } from "@/components/DepartmentEditModal";
+import { AddUserModal } from "@/components/UserAddModal";
 
 export default function DepartmentDetail() {
   const { id } = useLocalSearchParams();
@@ -66,7 +71,9 @@ export default function DepartmentDetail() {
   const isWeb = Platform.OS === "web";
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const bottomSheetRef = useRef<BottomSheet>(null);
+  const userBottomSheetRef = useRef<BottomSheetMethods>(null);
+  const deptBottomSheetRef = useRef<BottomSheetMethods>(null);
+  const addUserBottomSheetRef = useRef<BottomSheetMethods>(null);
   const [formMode, setFormMode] = useState<"view" | "edit" | "create">("view");
   const [isLoading, setIsLoading] = useState(false);
   const [isAddUserVisible, setIsAddUserVisible] = useState(false);
@@ -87,6 +94,12 @@ export default function DepartmentDetail() {
     []
   );
   const [roles, setRoles] = useState<RoleWithPermissions[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const filteredUsers = useMemo(() => {
+    if (!users) return [];
+    const query = normalize(searchQuery);
+    return users.filter((user) => normalize(user.name).includes(query));
+  }, [users, searchQuery]);
 
   const fetchDetail = async () => {
     if (isNaN(deptId)) {
@@ -295,7 +308,10 @@ export default function DepartmentDetail() {
       setUsers(newUsers);
 
       if (Platform.OS === "web") setModalVisible(false);
-      else bottomSheetRef.current?.close();
+      else {
+        userBottomSheetRef.current?.close();
+        setModalVisible(false);
+      }
       showToast(
         "success",
         "Kullanıcı Kaldırıldı",
@@ -319,7 +335,10 @@ export default function DepartmentDetail() {
       setUsers(newUsers);
 
       if (Platform.OS === "web") setModalVisible(false);
-      else bottomSheetRef.current?.close();
+      else {
+        userBottomSheetRef.current?.close();
+        setModalVisible(false);
+      }
       showToast(
         "success",
         "Kullanıcı Silindi",
@@ -362,7 +381,10 @@ export default function DepartmentDetail() {
       setUsers(newUsers);
 
       if (Platform.OS === "web") setModalVisible(false);
-      else bottomSheetRef.current?.close();
+      else {
+        userBottomSheetRef.current?.close();
+        setModalVisible(false);
+      }
     } catch (err) {
       console.error("User submit failed:", err);
       showToast("error", "Hata!", "Kullanıcı kaydedilemedi");
@@ -384,7 +406,10 @@ export default function DepartmentDetail() {
           else return; // no permission
 
           if (isWeb) setModalVisible(true);
-          else bottomSheetRef.current?.expand();
+          else {
+            userBottomSheetRef.current?.expand();
+            setModalVisible(true);
+          }
         }}
       >
         <View style={styles.userInfo}>
@@ -398,457 +423,184 @@ export default function DepartmentDetail() {
         </View>
 
         <View style={styles.statsView}>
-          {hasPermission("Tasks", 3) ? (
-            stats === "loading" ? (
-              <ActivityIndicator size="small" />
-            ) : stats == null ? (
-              <Text>Görev yok</Text>
-            ) : (
-              <Text style={styles.statsText}>
-                <MaterialIcons name="crisis-alert" size={15} color="#FF5B5B" />:
-                {stats?.stats.late || 0},{" "}
-                <MaterialIcons
-                  name="calendar-month"
-                  size={15}
-                  color="#007bff"
-                />
-                :{stats?.stats.not_started || 0},{" "}
-                <MaterialCommunityIcons
-                  name="circle-outline"
-                  size={15}
-                  color="#00A8FF"
-                />
-                :{stats?.stats.open || 0},{" "}
-                <MaterialCommunityIcons
-                  name="circle-slice-5"
-                  size={15}
-                  color="#FF8800"
-                />
-                :{stats?.stats.inprogress || 0},{" "}
-                <Ionicons
-                  name="checkmark-circle-sharp"
-                  size={15}
-                  color="#A0DF85"
-                />
-                :{stats?.stats.done || 0},{" "}
-                <Ionicons
-                  name="checkmark-done-circle"
-                  size={15}
-                  color="#36B700"
-                />
-                :{stats?.stats.approved || 0},{" "}
-                <MaterialIcons name="cancel" size={15} color="#FF0000" />:
-                {stats?.stats.cancelled || 0}
-              </Text>
-            )
-          ) : (
-            <Text> </Text>
-          )}
+          <UserStatsView
+            stats={stats}
+            hasPermission={hasPermission("Tasks", 3)}
+          />
         </View>
       </TouchableOpacity>
     );
   };
 
-  if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
-
-  if (error) {
-    return <NoPermission message={error} />;
-  }
-
-  if (!department) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>Department not found</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
+    <>
       <Stack.Screen options={{ title: "Departman" }} />
-
-      <FlatList
-        data={users}
-        keyExtractor={(u) => u.id.toString()}
-        renderItem={renderUser}
-        ListHeaderComponent={
-          <>
-            <View style={styles.header}>
-              <Text style={styles.headerTitle}>{department.dept_name}</Text>
-              {department.parent && (
-                <Text style={styles.parentText}>
-                  Üst: {department.parent.dept_name}
-                </Text>
-              )}
-              {hasPermission("Departments", 4) && (
-                <View style={styles.actionRow}>
-                  <TouchableOpacity onPress={() => handleEditDepartment()}>
-                    <MaterialIcons name="edit" size={20} color="#007bff" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => handleDeleteDepartment()}>
-                    <MaterialIcons name="delete" size={20} color="#dc3545" />
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.divider} />
-            <Text style={styles.subheader}>Üyeler</Text>
-            {hasPermission("Users", 4) && (
-              <TouchableOpacity
-                style={styles.addUserButton}
-                onPress={() => setIsAddUserVisible(true)}
-              >
-                <Text style={styles.addUserButtonText}>+ Kullanıcı Ekle</Text>
-              </TouchableOpacity>
-            )}
-          </>
-        }
-        ListEmptyComponent={() => (
-          <Text style={styles.noUsersText}>No users in this department.</Text>
-        )}
-        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
-        nestedScrollEnabled={true}
-      />
-
-      {hasPermission("Users", 3) && (
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={() => {
-            setSelectedUser(null);
-            setFormMode("create");
-
-            if (isWeb) setModalVisible(true);
-            else bottomSheetRef.current?.expand();
-          }}
-        >
-          <MaterialIcons name="person-add" size={28} color="#fff" />
-        </TouchableOpacity>
-      )}
-
-      {(formMode === "view" ||
-        formMode === "edit" ||
-        formMode === "create") && (
+      {!hasPermission("Departments", 2) ? (
+        <NoPermission message="Departman görüntüleme yetkiniz yoktur." />
+      ) : loading ? (
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" />
+        </View>
+      ) : error ? (
+        <NoPermission message={error} />
+      ) : !department ? (
+        <Text style={styles.errorText}>Department not found</Text>
+      ) : (
         <>
-          {isWeb ? (
-            // ✅ Modal for Web
-            <Modal
-              visible={modalVisible}
-              animationType="slide"
-              transparent={true}
-              onRequestClose={() => setModalVisible(false)}
-            >
-              <View
-                style={{
-                  flex: 1,
-                  backgroundColor: "rgba(0,0,0,0.6)",
-                  justifyContent: "center",
-                }}
-              >
-                <View
-                  style={{
-                    backgroundColor: "#1E1E1E",
-                    borderRadius: 10,
-                    padding: 16,
-                    margin: 20,
-                  }}
-                >
-                  <UserDetailForm
-                    mode={formMode}
-                    user={selectedUser}
-                    onSubmit={handleUserSubmit}
-                    onRemove={
-                      formMode === "edit" ? handleUserRemove : undefined
-                    }
-                    onDelete={
-                      formMode === "edit" ? handleUserDelete : undefined
-                    }
-                    isLoading={isLoading}
-                    isManager={selectedUser?.id === department.manager_id}
-                    roles={roles}
-                  />
+          <View style={styles.topBar}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Kullanıcı ara..."
+              placeholderTextColor="#888"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+          </View>
+
+          <FlatList
+            data={filteredUsers}
+            keyExtractor={(u) => u.id.toString()}
+            renderItem={renderUser}
+            ListHeaderComponent={
+              <>
+                <View style={styles.header}>
+                  <Text style={styles.headerTitle}>{department.dept_name}</Text>
+                  {department.parent && (
+                    <Text style={styles.parentText}>
+                      Üst: {department.parent.dept_name}
+                    </Text>
+                  )}
+                  {hasPermission("Departments", 4) && (
+                    <View style={styles.actionRow}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          handleEditDepartment();
+                          if (!isWeb) {
+                            deptBottomSheetRef.current?.expand();
+                            setModalVisible(true);
+                          }
+                        }}
+                      >
+                        <MaterialIcons name="edit" size={20} color="#007bff" />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleDeleteDepartment}>
+                        <MaterialIcons
+                          name="delete"
+                          size={20}
+                          color="#dc3545"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.divider} />
+                <Text style={styles.subheader}>Üyeler</Text>
+                {hasPermission("Users", 4) && (
                   <TouchableOpacity
-                    onPress={() => setModalVisible(false)}
-                    style={{ marginTop: 10 }}
+                    style={styles.addUserButton}
+                    onPress={() => {
+                      setSelectedUserToAdd(null);
+                      setIsAddUserVisible(true);
+
+                      if (Platform.OS === "web") return; // modal opens via visible state
+                      addUserBottomSheetRef.current?.expand();
+                      setModalVisible(true);
+                    }}
                   >
-                    <Text style={{ color: "#ccc", textAlign: "center" }}>
-                      Kapat
+                    <Text style={styles.addUserButtonText}>
+                      + Kullanıcı Ekle
                     </Text>
                   </TouchableOpacity>
-                </View>
-              </View>
-            </Modal>
-          ) : (
-            // ✅ BottomSheet for Mobile
-            <BottomSheet
-              ref={bottomSheetRef}
-              index={-1}
-              snapPoints={["70%"]}
-              enablePanDownToClose
+                )}
+              </>
+            }
+            ListEmptyComponent={() => (
+              <Text style={styles.noUsersText}>
+                No users in this department.
+              </Text>
+            )}
+            contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+            nestedScrollEnabled={true}
+          />
+          <UserDetailModal
+            visible={modalVisible}
+            mode={formMode}
+            user={selectedUser}
+            onClose={() => setModalVisible(false)}
+            onSubmit={handleUserSubmit}
+            onRemove={handleUserRemove}
+            onDelete={handleUserDelete}
+            isLoading={isLoading}
+            isManager={selectedUser?.id === department.manager_id}
+            roles={roles}
+            bottomSheetRef={userBottomSheetRef}
+          />
+          <DepartmentEditModal
+            visible={isEditDeptVisible}
+            onClose={() => setIsEditDeptVisible(false)}
+            onSubmit={handleUpdateDepartment}
+            deptForm={deptForm}
+            setDeptForm={setDeptForm}
+            allDepartments={allDepartments}
+            users={users}
+            bottomSheetRef={deptBottomSheetRef}
+          />
+          <AddUserModal
+            visible={isAddUserVisible}
+            onClose={() => {
+              setIsAddUserVisible(false);
+              addUserBottomSheetRef.current?.close(); // close on mobile too
+              setModalVisible(false);
+            }}
+            onAdd={async () => {
+              if (!selectedUserToAdd) return;
+              await addUserInDepartment(deptId, selectedUserToAdd);
+              setSelectedUserToAdd(null);
+              setIsAddUserVisible(false);
+              addUserBottomSheetRef.current?.close();
+              setModalVisible(false);
+              const updated = await getUsersForDepartment(deptId);
+              setUsers(updated);
+              showToast(
+                "success",
+                "Kullanıcı eklendi",
+                "Kullanıcı departmana eklendi."
+              );
+            }}
+            users={allUsers}
+            selectedUserId={selectedUserToAdd}
+            setSelectedUserId={setSelectedUserToAdd}
+            bottomSheetRef={addUserBottomSheetRef}
+          />
+          <TouchableOpacity
+            onPress={() => {
+              setSelectedUser(null);
+              setFormMode("create");
+              setModalVisible(true);
+            }}
+          ></TouchableOpacity>
+
+          {hasPermission("Users", 3) && !modalVisible && (
+            <TouchableOpacity
+              style={styles.fab}
+              onPress={() => {
+                setSelectedUser(null);
+                setFormMode("create");
+
+                if (isWeb) setModalVisible(true);
+                else {
+                  userBottomSheetRef.current?.expand();
+                  setModalVisible(true);
+                }
+              }}
             >
-              <BottomSheetScrollView>
-                <UserDetailForm
-                  mode={formMode}
-                  user={selectedUser}
-                  onSubmit={handleUserSubmit}
-                  onRemove={formMode === "edit" ? handleUserRemove : undefined}
-                  onDelete={formMode === "edit" ? handleUserDelete : undefined}
-                  isLoading={isLoading}
-                  isManager={selectedUser?.id === department.manager_id}
-                  roles={roles}
-                />
-              </BottomSheetScrollView>
-            </BottomSheet>
+              <MaterialIcons name="person-add" size={28} color="#fff" />
+            </TouchableOpacity>
           )}
         </>
       )}
-
-      {isAddUserVisible &&
-        (isWeb ? (
-          <Modal
-            visible={isAddUserVisible}
-            animationType="slide"
-            transparent
-            onRequestClose={() => setIsAddUserVisible(false)}
-          >
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                <Text style={styles.label}>Kullanıcı Seç</Text>
-                <View style={styles.pickerContainer}>
-                  <Picker
-                    selectedValue={selectedUserToAdd}
-                    onValueChange={(val) =>
-                      setSelectedUserToAdd(val as number | null)
-                    }
-                    style={styles.pickerstyle}
-                  >
-                    <Picker.Item label="Kullanıcı seçin" value={null} />
-                    {allUsers.map((user) => (
-                      <Picker.Item
-                        key={user.id}
-                        label={`${user.name || ""} - ${user.role}`}
-                        value={user.id}
-                      />
-                    ))}
-                  </Picker>
-                </View>
-
-                <View style={styles.actionsRow}>
-                  <TouchableOpacity
-                    style={styles.button}
-                    onPress={async () => {
-                      if (selectedUserToAdd == null) return;
-                      await addUserInDepartment(deptId, selectedUserToAdd);
-                      setSelectedUserToAdd(null);
-                      setIsAddUserVisible(false);
-                      const updatedUsers = await getUsersForDepartment(deptId);
-                      setUsers(updatedUsers);
-                    }}
-                  >
-                    <Text style={styles.buttonText}>Ekle</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => setIsAddUserVisible(false)}
-                    style={[styles.button, { backgroundColor: "#777" }]}
-                  >
-                    <Text style={styles.buttonText}>İptal</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </Modal>
-        ) : (
-          <BottomSheet
-            index={0}
-            snapPoints={["40%"]}
-            enablePanDownToClose
-            onClose={() => setIsAddUserVisible(false)}
-          >
-            <BottomSheetScrollView>
-              <View style={{ padding: 16 }}>
-                <Text style={styles.label}>Kullanıcı Seç</Text>
-                <Picker
-                  style={styles.pickerstyle}
-                  selectedValue={selectedUserToAdd}
-                  onValueChange={(val) => setSelectedUserToAdd(val)}
-                >
-                  <Picker.Item label="Kullanıcı seçin" value={null} />
-                  {allUsers.map((user) => (
-                    <Picker.Item
-                      key={user.id}
-                      label={`${user.name || ""} - ${user.role}`}
-                      value={user.id}
-                    />
-                  ))}
-                </Picker>
-
-                <TouchableOpacity
-                  style={[styles.button, { marginTop: 10 }]}
-                  onPress={async () => {
-                    if (selectedUserToAdd == null) return;
-                    await addUserInDepartment(deptId, selectedUserToAdd);
-                    setSelectedUserToAdd(null);
-                    setIsAddUserVisible(false);
-                    const updatedUsers = await getUsersForDepartment(deptId);
-                    setUsers(updatedUsers);
-                  }}
-                >
-                  <Text style={styles.buttonText}>Ekle</Text>
-                </TouchableOpacity>
-              </View>
-            </BottomSheetScrollView>
-          </BottomSheet>
-        ))}
-      {isEditDeptVisible &&
-        (isWeb ? (
-          <Modal
-            visible={isEditDeptVisible}
-            animationType="slide"
-            transparent
-            onRequestClose={() => setIsEditDeptVisible(false)}
-          >
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                <Text style={styles.label}>Departman Adı</Text>
-                <TextInput
-                  value={deptForm.name}
-                  onChangeText={(val) =>
-                    setDeptForm((prev) => ({ ...prev, name: val }))
-                  }
-                  style={styles.input}
-                />
-
-                <Text style={styles.label}>Üst Departman</Text>
-                <View style={styles.pickerContainer}>
-                  <Picker
-                    selectedValue={deptForm.parentId}
-                    onValueChange={(val) =>
-                      setDeptForm((prev) => ({ ...prev, parentId: val }))
-                    }
-                    style={styles.pickerstyle}
-                  >
-                    <Picker.Item label="Üst departman seçin" value={null} />
-                    {allDepartments.map((dept) => (
-                      <Picker.Item
-                        key={dept.id}
-                        label={`${dept.dept_name}${
-                          dept.isOwn ? " (Sizin)" : ""
-                        }`}
-                        value={dept.id}
-                      />
-                    ))}
-                  </Picker>
-                </View>
-
-                <Text style={styles.label}>Yönetici</Text>
-                <View style={styles.pickerContainer}>
-                  <Picker
-                    selectedValue={deptForm.managerId}
-                    onValueChange={(val) =>
-                      setDeptForm((prev) => ({ ...prev, managerId: val }))
-                    }
-                    style={styles.pickerstyle}
-                  >
-                    <Picker.Item label="Yönetici seçin" value={null} />
-                    {users.map((user) => (
-                      <Picker.Item
-                        key={user.id}
-                        label={`${user.name || ""} - ${user.role || ""}`}
-                        value={user.id}
-                      />
-                    ))}
-                  </Picker>
-                </View>
-
-                <View style={styles.actionsRow}>
-                  <TouchableOpacity
-                    style={styles.button}
-                    onPress={() => handleUpdateDepartment()}
-                  >
-                    <Text style={styles.buttonText}>Güncelle</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setIsEditDeptVisible(false)}
-                    style={[styles.button, { backgroundColor: "#777" }]}
-                  >
-                    <Text style={styles.buttonText}>İptal</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </Modal>
-        ) : (
-          <BottomSheet
-            index={0}
-            snapPoints={["55%"]}
-            enablePanDownToClose
-            onClose={() => setIsEditDeptVisible(false)}
-          >
-            <BottomSheetScrollView>
-              <View style={{ padding: 16 }}>
-                <Text style={styles.label}>Departman Adı</Text>
-                <TextInput
-                  value={deptForm.name}
-                  onChangeText={(val) =>
-                    setDeptForm((prev) => ({ ...prev, name: val }))
-                  }
-                  style={styles.input}
-                />
-
-                <Text style={styles.label}>Üst Departman</Text>
-                <Picker
-                  selectedValue={deptForm.parentId}
-                  onValueChange={(val) =>
-                    setDeptForm((prev) => ({ ...prev, parentId: val }))
-                  }
-                  style={styles.pickerstyle}
-                >
-                  <Picker.Item label="Üst departman seçin" value={null} />
-                  {allDepartments.map((dept) => (
-                    <Picker.Item
-                      key={dept.id}
-                      label={dept.dept_name}
-                      value={dept.id}
-                    />
-                  ))}
-                </Picker>
-
-                <Text style={styles.label}>Yönetici</Text>
-                <Picker
-                  selectedValue={deptForm.managerId}
-                  onValueChange={(val) =>
-                    setDeptForm((prev) => ({ ...prev, managerId: val }))
-                  }
-                  style={styles.pickerstyle}
-                >
-                  <Picker.Item label="Yönetici seçin" value={null} />
-                  {users.map((user) => (
-                    <Picker.Item
-                      key={user.id}
-                      label={`${user.name || ""} - ${user.role || ""}`}
-                      value={user.id}
-                    />
-                  ))}
-                </Picker>
-
-                <TouchableOpacity
-                  style={[styles.button, { marginTop: 10 }]}
-                  onPress={() => handleUpdateDepartment()}
-                >
-                  <Text style={styles.buttonText}>Güncelle</Text>
-                </TouchableOpacity>
-              </View>
-            </BottomSheetScrollView>
-          </BottomSheet>
-        ))}
-    </View>
+    </>
   );
 }
 
@@ -879,71 +631,6 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     marginBottom: 12,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  modalContent: {
-    backgroundColor: "#1e1e1e",
-    borderRadius: 10,
-    padding: 20,
-    width: "90%",
-  },
-
-  label: {
-    color: "#ccc",
-    fontSize: 14,
-    marginBottom: 6,
-  },
-
-  input: {
-    borderWidth: 1,
-    borderColor: "#444",
-    borderRadius: 6,
-    padding: 10,
-    marginBottom: 16,
-    color: "#fff",
-    backgroundColor: "#2a2a2a",
-  },
-
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: "#444",
-    borderRadius: 6,
-    marginBottom: 16,
-    backgroundColor: "#2a2a2a",
-  },
-  pickerstyle: {
-    color: "#ddd",
-    backgroundColor: "#1d1d1dff",
-    borderRadius: 15,
-    padding: 10,
-  },
-
-  button: {
-    backgroundColor: "#3c82f6",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 6,
-    marginRight: 10,
-  },
-
-  buttonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    textAlign: "center",
-  },
-
-  actionsRow: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 10,
-    flexWrap: "wrap",
-  },
-
   addUserButtonText: {
     color: "#fff",
     fontWeight: "bold",
@@ -1005,20 +692,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#FFFFFF",
   },
-  userEmail: {
-    fontSize: 14,
-    color: "#BBBBBB",
-  },
-  userPhone: {
-    fontSize: 13,
-    color: "#AAAAAA",
-    marginTop: 4,
-  },
-  userAddress: {
-    fontSize: 13,
-    color: "#999999",
-    marginTop: 2,
-  },
   statsView: {
     flex: 1,
     justifyContent: "center",
@@ -1026,11 +699,6 @@ const styles = StyleSheet.create({
   statsText: {
     fontSize: 12,
     color: "#CCCCCC",
-  },
-  noStatsText: {
-    fontSize: 12,
-    color: "#888888",
-    fontStyle: "italic",
   },
   noUsersText: {
     textAlign: "center",
@@ -1049,9 +717,25 @@ const styles = StyleSheet.create({
     marginTop: 8,
     justifyContent: "center",
   },
-  userActions: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 4,
+  topBar: {
+    width: "100%",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1A1A1A",
+  },
+  searchInput: {
+    width: "80%",
+    backgroundColor: "#2A2A2A",
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#444",
+    borderRadius: 6,
+    height: 36,
+    fontSize: 14,
+    color: "#FFF",
   },
 });

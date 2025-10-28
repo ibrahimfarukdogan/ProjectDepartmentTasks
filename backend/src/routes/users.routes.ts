@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import authenticateJWT from '../middlewares/authjwt.middleware.js';
 import requirePermission from '../middlewares/requirePermission.middleware.js';
 import { Users, Departments, Roles, Tasks } from '../models/index.js';
-import { CheckOwnAndSubDeparmentAllowance, } from '../utils/utils.js';
+import { CheckOwnAndSubDeparmentAllowance, getUserPermissions, hasPermission, } from '../utils/utils.js';
 import { CreateWithUserOptions, DestroyWithUserOptions, UpdateWithUserOptions } from '../types/hookparameter.js';
 import { UserAttributes } from '../models/users.model.js';
 import { RoleAttributes } from '../models/roles.model.js';
@@ -43,21 +43,26 @@ router.post('/:id/users',
       return;
     }
     try {
-      // Build allowed dept list
-      const userDepartments = await currentUser.getMember_departments();
-
-      const isAuthorized = CheckOwnAndSubDeparmentAllowance(deptIdParam, userDepartments);
-
-      if (!isAuthorized) {
-        res.status(403).json({ message: 'Forbidden: you cannot create user in this department' });
-        return;
-      }
       // Optional: check the department actually exists
       const department = await Departments.findByPk(deptIdParam);
       if (!department) {
         res.status(404).json({ message: 'Department not found' });
         return;
       }
+
+      const userDepartments = await currentUser.getMember_departments();
+
+      const userPermissions = await getUserPermissions(currentUser);
+      const hasDeptLevel2 = hasPermission(userPermissions, 'Departments', 2);
+
+      const isAuthorized = hasDeptLevel2
+        ? await CheckOwnAndSubDeparmentAllowance(department.id, userDepartments)
+        : userDepartments.some(d => d.id === department.id);
+      if (!isAuthorized) {
+        res.status(403).json({ error: 'You are not authorized for this department.' })
+        return;
+      }
+
 
       // ✅ Set default role_id to 1 if not provided
       if (!data.role_id || data.role_id == null) {
@@ -157,11 +162,16 @@ router.put('/:deptId/users/:userId',
       }
 
       // 🔒 Step 2: Check if current user is allowed to manage the target department
-      const currentUserDepartments = await currentUser.getMember_departments();
-      const isAuthorized = await CheckOwnAndSubDeparmentAllowance(targetDeptId, currentUserDepartments);
+      const userDepartments = await currentUser.getMember_departments();
 
+      const userPermissions = await getUserPermissions(currentUser);
+      const hasDeptLevel2 = hasPermission(userPermissions, 'Departments', 2);
+
+      const isAuthorized = hasDeptLevel2
+        ? await CheckOwnAndSubDeparmentAllowance(department.id, userDepartments)
+        : userDepartments.some(d => d.id === department.id);
       if (!isAuthorized) {
-        res.status(403).json({ error: 'You are not authorized to manage users in this department.' });
+        res.status(403).json({ error: 'You are not authorized for this department.' })
         return;
       }
 
@@ -268,9 +278,14 @@ router.delete('/:id/users/:userId',
         return;
       }
 
-      const isAuthorized = CheckOwnAndSubDeparmentAllowance(department.id, userDepartments);
+      const userPermissions = await getUserPermissions(currentUser);
+      const hasDeptLevel2 = hasPermission(userPermissions, 'Departments', 2);
+
+      const isAuthorized = hasDeptLevel2
+        ? await CheckOwnAndSubDeparmentAllowance(department.id, userDepartments)
+        : userDepartments.some(d => d.id === department.id);
       if (!isAuthorized) {
-        res.status(403).json({ message: 'Forbidden: you cannot delete this user' });
+        res.status(403).json({ error: 'You are not authorized for this department.' })
         return;
       }
 

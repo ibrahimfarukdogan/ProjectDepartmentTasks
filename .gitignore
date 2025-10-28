@@ -14,6 +14,9 @@ dist-ssr
 
 backend/node_modules
 frontend/node_modules
+frontend/expo-env.d.ts
+frontend/network_security_config.xml
+ngrok.yml
 
 # Editor directories and files
 .vscode/*

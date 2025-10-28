@@ -1,7 +1,13 @@
 import { DepartmentWithType } from "@/types/departments";
 import { UserList } from "@/types/user";
 import { Picker } from "@react-native-picker/picker";
-import { View, Text, TouchableOpacity, TextInput } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  TextInput,
+  StyleSheet,
+} from "react-native";
 
 type Props = {
   departments: DepartmentWithType[];
@@ -10,6 +16,7 @@ type Props = {
   newDeptName: string;
   onChangeDeptName: (name: string) => void;
   onSubmit: () => void;
+  onCancel: () => void;
   isLoading: boolean;
   visibleUsers: UserList[];
   selectedManagerId: number;
@@ -24,6 +31,7 @@ export function CreateDepartmentForm({
   newDeptName,
   onChangeDeptName,
   onSubmit,
+  onCancel,
   isLoading,
   visibleUsers,
   selectedManagerId,
@@ -72,6 +80,7 @@ export function CreateDepartmentForm({
         <Picker
           selectedValue={selectedParentId}
           onValueChange={(val) => onSelectParent(Number(val))}
+          style={styles.pickerstyle}
         >
           {departments.map((dept) => (
             <Picker.Item
@@ -96,6 +105,7 @@ export function CreateDepartmentForm({
           selectedValue={selectedManagerId}
           onValueChange={(val) => onSelectManager(Number(val))}
           enabled={canSelectManager}
+          style={styles.pickerstyle}
         >
           {visibleUsers.map((user) => (
             <Picker.Item
@@ -121,6 +131,25 @@ export function CreateDepartmentForm({
           {isLoading ? "Oluşturuluyor..." : "Oluştur"}
         </Text>
       </TouchableOpacity>
+
+      <TouchableOpacity
+        style={{
+          marginTop: 12,
+          alignItems: "center",
+          paddingVertical: 10,
+        }}
+        onPress={onCancel}
+        disabled={isLoading}
+      >
+        <Text style={{ color: "#007BFF", fontWeight: "bold" }}>İptal</Text>
+      </TouchableOpacity>
     </View>
   );
 }
+const styles = StyleSheet.create({
+  pickerstyle: {
+    color: "#fff",
+    backgroundColor: "#2b2b2b",
+    borderRadius: 6,
+  },
+});

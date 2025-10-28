@@ -36,7 +36,11 @@ const corsOptions: CorsOptions = {
   credentials: true,
 };
 
-app.use(cors(corsOptions));
+//app.use(cors(corsOptions));
+app.use(cors({
+  origin: true, // allows any origin
+  credentials: true,
+}));
 
 app.use(express.json());
 app.use('/login', authRoutes);
@@ -58,10 +62,9 @@ async function startServer() {
     //await sequelize.sync({ alter: true });
     //console.log('All models synced, join tables created');
 
-    app.listen(process.env.PORT, () => {
-      console.log(`Server is running on port ${process.env.PORT}`);
-    });
-    
+app.listen(Number(process.env.PORT) || 3000, '0.0.0.0', () => {
+  console.log(`Server is running on http://0.0.0.0:${process.env.PORT}`);
+});
 
     cron.schedule('0 11 * * *', async () => {
       console.log('[CRON] Running check');

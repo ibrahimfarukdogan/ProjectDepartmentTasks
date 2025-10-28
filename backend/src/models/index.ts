@@ -34,7 +34,7 @@ Departments.hasMany(Departments, { as: 'subdepartments',foreignKey: 'parent_id',
 Departments.belongsTo(Users, { as: 'manager', foreignKey: 'manager_id' });
 
 Tasks.belongsTo(Users, { foreignKey: 'creator_id', as: 'creator', onDelete: 'SET NULL' });
-Tasks.belongsTo(Users, { foreignKey: 'authorized_user_id', as: 'updater', onDelete: 'SET NULL' });
+Tasks.belongsTo(Users, { foreignKey: 'authorized_user_id', as: 'authorizator', onDelete: 'SET NULL' });
 Tasks.belongsTo(Users, { foreignKey: 'assigned_user_id', as: 'assignedUser', onDelete: 'SET NULL' });
 Tasks.belongsTo(Departments, {foreignKey: 'assigned_dept_id',as: 'assignedDepartment',onDelete: 'CASCADE'});
 Tasks.hasMany(TaskComments, {foreignKey: 'task_id',as: 'comments',onDelete: 'CASCADE'});

@@ -1,13 +1,10 @@
-import 'dotenv/config';
 import { ExpoConfig } from '@expo/config';
-
-const projectVersion = process.env.PROJECT_VERSION || '1.0.0';
 
 const config: ExpoConfig = {
   name: 'task Manager',
   slug: 'frontend',
   scheme: 'frontend',
-  version: projectVersion,
+  version: '1.0.0',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
   icon: './assets/images/icon.png',
@@ -25,8 +22,9 @@ const config: ExpoConfig = {
     favicon: './assets/images/favicon.png',
   },
   extra: {
-    API_URL_ANDROID: process.env.API_URL_ANDROID,
-    API_URL_WEB: process.env.API_URL_WEB,
+    //API_URL_ANDROID: 'http://192.168.20.142:3000',
+    API_URL_ANDROID: 'https://eleonora-unrepossessed-nonmutably.ngrok-free.dev',
+    API_URL_WEB: 'http://localhost:3000',
     eas: {
       projectId: 'dd6e4e6a-1cb0-4080-a6a8-6942ddaeed88',
     },
@@ -44,6 +42,14 @@ const config: ExpoConfig = {
       },
     ],
     'expo-secure-store',
+    [
+      "expo-build-properties",
+      {
+        android: {
+          networkSecurityConfig: "network_security_config"
+        }
+      }
+    ]
   ],
   experiments: {
     typedRoutes: true,

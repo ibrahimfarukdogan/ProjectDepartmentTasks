@@ -24,9 +24,10 @@ export interface TaskAttributes {
   requester_phone?: number;
   requester_rank: 'milletvekili' | 'kaymakamlik' | 'muhtarlik' | 'diger';
 
-assignedUser?: Users;
-updater?: Users;
-assignedDepartment?: Departments;
+  creator?: Users;
+  assignedUser?: Users;
+  authorizator?: Users;
+  assignedDepartment?: Departments;
 }
 
 interface TaskCreationAttributes extends Optional<TaskAttributes, 'id' | 'assigned_user_id' | 'description' | 'start_date' | 'finish_date' | 'created_at' | 'updated_at' | 'requester_mail' | 'requester_phone'> { }
@@ -52,9 +53,10 @@ class Tasks extends Model<TaskAttributes, TaskCreationAttributes> implements Tas
   public requester_phone?: number;
   public requester_rank!: TaskAttributes['requester_rank'];
 
+  public creator?: Users;
   public assignedUser?: Users;
-public updater?: Users;
-public assignedDepartment?: Departments;
+  public authorizator?: Users;
+  public assignedDepartment?: Departments;
 }
 
 Tasks.init({

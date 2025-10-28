@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import { Tasks, Users, TaskComments, Departments, Notifications } from '../models/index.js';
 import authenticateJWT from '../middlewares/authjwt.middleware.js';
 import requirePermission from '../middlewares/requirePermission.middleware.js';
-import { CheckOwnAndSubDeparmentAllowance, getOwnAndSubDepartments, sendTaskAssignmentNotifications, sendTaskStatusNotification, validateUserBelongsToDepartment } from '../utils/utils.js';
+import { CheckOwnAndSubDeparmentAllowance, getOwnAndSubDepartments, getUserPermissions, hasPermission, sendTaskAssignmentNotifications, sendTaskStatusNotification, validateUserBelongsToDepartment } from '../utils/utils.js';
 import { CreateWithUserOptions, DestroyWithUserOptions, SaveWithUserOptions, UpdateWithUserOptions } from '../types/hookparameter.js';
 import { TaskAttributes } from '../models/tasks.model.js';
 import { TaskCommentAttributes } from '../models/taskComments.model.js';
@@ -41,12 +41,22 @@ router.post('/',
         res.status(400).json({ error: 'Task must be assigned to at least a department.' });
         return;
       }
-
-      // 🔒 Check assignor's permission over the department
+      const departmentAssign = await Departments.findByPk(assigned_dept_id);
+      if (!departmentAssign) {
+        res.status(404).json({ error: 'Assigned Department not found' });
+        return;
+      }
       const userDepartments = await currentUser.getMember_departments();
-      const isAuthorized = await CheckOwnAndSubDeparmentAllowance(assigned_dept_id, userDepartments);
-      if (!isAuthorized) {
-        res.status(403).json({ error: 'You are not allowed to assign tasks to this department.' });
+      const userPermissions = await getUserPermissions(currentUser);
+      const hasDeptLevel2 = hasPermission(userPermissions, 'Departments', 2);
+
+
+      const isAuthorized = hasDeptLevel2
+      ? await CheckOwnAndSubDeparmentAllowance(assigned_dept_id, userDepartments)
+      : userDepartments.some(d => d.id === assigned_dept_id);
+      if (!isAuthorized)
+      {
+         res.status(403).json({ error: 'You are not authorized for this department.' })
         return;
       }
 
@@ -139,7 +149,7 @@ router.put('/:id',
         const userDepartments = await currentUser.getMember_departments();
         const isAuthorized = await CheckOwnAndSubDeparmentAllowance(newAssignedDeptId, userDepartments);
         if (!isAuthorized) {
-          res.status(403).json({ error: 'You are not allowed to assign tasks to this department.' });
+          res.status(403).json({ error: 'You are not allowed to update tasks to this department.' });
           return;
         }
 
@@ -200,6 +210,21 @@ router.patch('/:id/status',
         res.status(404).json({ error: 'Task not found' });
         return;
       }
+
+      const currentUser = await Users.findByPk(req.user!.id);
+      if (!currentUser) {
+        res.status(401).json({ error: 'Invalid user' });
+        return;
+      }
+
+      const AssignedDeptId = task.assigned_dept_id;
+
+        const userDepartments = await currentUser.getMember_departments();
+        const isAuthorizedd = await CheckOwnAndSubDeparmentAllowance(AssignedDeptId, userDepartments);
+        if (!isAuthorizedd) {
+          res.status(403).json({ error: 'You are not allowed to update tasks of this department.' });
+          return;
+        }
 
       const userId = req.user!.id;
       const isAssigned = task.assigned_user_id === userId;
